@@ -1,5 +1,5 @@
 """
-Chat API endpoints with streaming support.
+Chat API endpoints with streaming support and quiz mode.
 """
 
 import logging
@@ -29,6 +29,160 @@ tutor_graph = create_tutor_graph()
 orchestrator = get_orchestrator()
 
 
+# ── Mode detection ───────────────────────────────────────────────────
+
+_QUIZ_KEYWORDS = ["出题", "考我", "练习", "做题", "测试", "quiz", "exercise"]
+_DIFFICULTY_KEYWORDS = {
+    "简单": ["简单", "容易", "基础"],
+    "适中": ["适中", "一般", "普通"],
+    "困难": ["难", "困难", "挑战", "高级"],
+}
+
+
+def _detect_mode(student_input: str, prev_state: dict | None, session_history: list[dict] | None = None) -> tuple[str, dict]:
+    """
+    Detect interaction mode from student input.
+    Returns (mode, extra_state).
+    """
+    text = student_input.strip().lower()
+    logger.info(f"[_detect_mode] input='{student_input}' text='{text}'")
+
+    # If previous state exists and we're in quiz mode
+    if prev_state:
+        prev_mode = prev_state.get("mode", "chat")
+
+        # Previous turn was quiz_question → student is answering
+        if prev_mode == "quiz_question":
+            return "quiz_answer", {
+                "quiz_student_answer": student_input,
+                "quiz_question": prev_state.get("quiz_question", ""),
+                "quiz_reference": prev_state.get("quiz_reference", ""),
+                "quiz_topic": prev_state.get("quiz_topic", ""),
+            }
+
+        # Previous turn was generate_quiz → student is answering the quiz
+        if prev_mode == "generate_quiz":
+            return "quiz_answer", {
+                "quiz_student_answer": student_input,
+                "quiz_question": prev_state.get("quiz_question", ""),
+                "quiz_reference": prev_state.get("quiz_reference", ""),
+                "quiz_topic": prev_state.get("quiz_topic", ""),
+            }
+
+        # Previous turn was judge_answer → student is choosing follow-up
+        if prev_mode == "judge_answer":
+            # Check what student chose
+            if any(k in text for k in ["1", "引导", "一步步", "思考"]):
+                return "quiz_socratic", {
+                    "quiz_question": prev_state.get("quiz_question", ""),
+                    "quiz_reference": prev_state.get("quiz_reference", ""),
+                    "quiz_student_answer": prev_state.get("quiz_student_answer", ""),
+                    "quiz_topic": prev_state.get("quiz_topic", ""),
+                }
+            elif any(k in text for k in ["2", "直接", "答案", "告诉"]):
+                return "quiz_direct", {
+                    "quiz_question": prev_state.get("quiz_question", ""),
+                    "quiz_reference": prev_state.get("quiz_reference", ""),
+                    "quiz_student_answer": prev_state.get("quiz_student_answer", ""),
+                    "quiz_topic": prev_state.get("quiz_topic", ""),
+                }
+            elif any(k in text for k in ["3", "简单", "换"]):
+                return "quiz_question", {
+                    "quiz_topic": prev_state.get("quiz_topic", ""),
+                    "quiz_difficulty": "简单",
+                }
+            elif any(k in text for k in ["更难的", "挑战", "难"]):
+                return "quiz_question", {
+                    "quiz_topic": prev_state.get("quiz_topic", ""),
+                    "quiz_difficulty": "困难",
+                }
+            elif any(k in text for k in ["结束", "继续提问", "不练"]):
+                return "chat", {}
+
+        # Previous turn was quiz_socratic or quiz_direct → student may want more
+        if prev_mode in ("quiz_socratic", "quiz_direct"):
+            if any(k in text for k in _QUIZ_KEYWORDS):
+                return "quiz_question", {"quiz_topic": prev_state.get("quiz_topic", "")}
+            return "chat", {}
+
+    # Fresh quiz request — check if ANY keyword appears as a substring
+    matched_kw = [k for k in _QUIZ_KEYWORDS if k in text]
+    # Also check if the individual characters of multi-char keywords are all present
+    # (e.g. "出一道简单的题" contains both '出' and '题' but not "出题" as substring)
+    if not matched_kw:
+        for k in _QUIZ_KEYWORDS:
+            if len(k) > 1 and all(ch in text for ch in k):
+                matched_kw.append(k)
+                break
+    logger.info(f"[_detect_mode] matched quiz keywords: {matched_kw}")
+    if matched_kw:
+        # Extract topic from input (remove matched quiz keyword characters)
+        topic = student_input
+        # Remove the matched keyword (prefer the first matched multi-char keyword)
+        remove_chars = set()
+        for kw in matched_kw:
+            if len(kw) > 1:
+                remove_chars.update(kw)
+            else:
+                remove_chars.add(kw)
+        for ch in remove_chars:
+            topic = topic.replace(ch, "")
+        topic = topic.strip(" ，。！？")
+
+        # If topic is empty or too generic after stripping keywords, infer from session history
+        if not topic or len(topic) < 2:
+            inferred = _infer_topic_from_history(session_history)
+            logger.info(f"[_detect_mode] inferred topic from history: '{inferred}'")
+            if inferred:
+                topic = inferred
+        if not topic or len(topic) < 2:
+            topic = "数学"  # default
+        logger.info(f"[_detect_mode] final quiz_topic='{topic}'")
+
+        # Detect difficulty
+        difficulty = "适中"
+        for diff, keywords in _DIFFICULTY_KEYWORDS.items():
+            if any(k in text for k in keywords):
+                difficulty = diff
+                break
+
+        logger.info(f"[_detect_mode] -> quiz_question topic='{topic}' difficulty='{difficulty}'")
+        return "quiz_question", {"quiz_topic": topic, "quiz_difficulty": difficulty}
+
+    logger.info("[_detect_mode] -> chat")
+    return "chat", {}
+
+
+def _infer_topic_from_history(session_history: list[dict] | None) -> str:
+    """Infer the quiz topic from the most recent student question in session history."""
+    if not session_history:
+        return ""
+    import re
+    concept_patterns = [
+        r"(?:^|[^一-龥])([一-龥]{1,8}定理)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}公式)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}法则)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}原理)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}函数)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}方程)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}不等式)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}数列)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}几何)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}向量)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}导数)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}积分)",
+    ]
+    # Priority: look at student messages (most recent first)
+    for msg in reversed(session_history):
+        if msg.get("role") == "student":
+            content = msg.get("content", "")
+            for pattern in concept_patterns:
+                matches = re.findall(pattern, content)
+                if matches:
+                    return matches[-1]
+    return ""
+
+
 # ── Non-streaming chat ───────────────────────────────────────────────
 
 @router.post(
@@ -39,6 +193,149 @@ orchestrator = get_orchestrator()
 async def chat(req: ChatRequest) -> ChatResponse:
     """Send a message to the tutor and get a response."""
     try:
+        # Load session history for topic inference when student says "出题" without explicit topic
+        session_history = []
+        try:
+            lt = LongTermMemory()
+            session_history = lt.get_session_messages(req.session_id, limit=10)
+        except Exception:
+            pass
+
+        # Detect mode
+        mode, extra = _detect_mode(req.message, None, session_history)
+
+        # Direct quiz modes bypass the graph
+        if mode == "quiz_question":
+            from app.agents.quiz_agent import QuizAgent
+            quiz_agent = QuizAgent()
+            quiz_result = quiz_agent.generate_question(
+                student_id=req.student_id,
+                topic=extra.get("quiz_topic", req.message),
+                difficulty=extra.get("quiz_difficulty", "适中"),
+            )
+            reply = (
+                f"📚 **练习题**\n\n{quiz_result['question']}\n\n"
+                f"💡 提示：{quiz_result['hint']}\n\n"
+                f"请直接回复你的答案，我会帮你评判。"
+            )
+            orchestrator.save_conversation_turn(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                student_input=req.message,
+                assistant_reply=reply,
+                agent_name="generate_quiz",
+            )
+            return ChatResponse(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                reply=reply,
+                agent_name="generate_quiz",
+                stage="generate_quiz",
+                is_guided=False,
+                metadata={"mode": "quiz_question"},
+            )
+
+        if mode == "quiz_answer":
+            from app.agents.quiz_agent import QuizAgent
+            quiz_agent = QuizAgent()
+            judge_result = quiz_agent.judge_answer(
+                student_id=req.student_id,
+                question=extra.get("quiz_question", ""),
+                reference_answer=extra.get("quiz_reference", ""),
+                student_answer=req.message,
+            )
+            if judge_result["is_correct"]:
+                reply = (
+                    f"✅ **回答正确！**\n\n{judge_result['evaluation']}\n\n"
+                    f"{judge_result['encouragement']}\n\n"
+                    f"想挑战更难的题目吗？回复「更难」或「结束」。"
+                )
+            else:
+                reply = (
+                    f"❌ **回答有误**\n\n{judge_result['evaluation']}\n\n"
+                    f"{judge_result['encouragement']}\n\n"
+                    f"你可以：\n"
+                    f"1. 回复「引导」—— 我会用苏格拉底提问法一步步引导你\n"
+                    f"2. 回复「答案」—— 我直接告诉你正确答案\n"
+                    f"3. 回复「结束」—— 回到正常问答"
+                )
+            orchestrator.save_conversation_turn(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                student_input=req.message,
+                assistant_reply=reply,
+                agent_name="judge_answer",
+            )
+            return ChatResponse(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                reply=reply,
+                agent_name="judge_answer",
+                stage="judge_answer",
+                is_guided=False,
+                metadata={"mode": "quiz_answer", "is_correct": judge_result["is_correct"]},
+            )
+
+        if mode == "quiz_socratic":
+            from app.agents.quiz_agent import QuizAgent
+            quiz_agent = QuizAgent()
+            guide_result = quiz_agent.socratic_guide(
+                student_id=req.student_id,
+                question=extra.get("quiz_question", ""),
+                reference_answer=extra.get("quiz_reference", ""),
+                student_answer=extra.get("quiz_student_answer", ""),
+            )
+            reply = (
+                f"🤔 **引导思考**\n\n{guide_result['reply']}\n\n"
+                f"想好了可以回复你的新答案，或者回复「答案」直接查看正确解答。"
+            )
+            orchestrator.save_conversation_turn(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                student_input=req.message,
+                assistant_reply=reply,
+                agent_name="quiz_socratic",
+            )
+            return ChatResponse(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                reply=reply,
+                agent_name="quiz_socratic",
+                stage="quiz_socratic",
+                is_guided=False,
+                metadata={"mode": "quiz_socratic"},
+            )
+
+        if mode == "quiz_direct":
+            from app.agents.quiz_agent import QuizAgent
+            quiz_agent = QuizAgent()
+            answer_result = quiz_agent.direct_answer(
+                student_id=req.student_id,
+                question=extra.get("quiz_question", ""),
+                reference_answer=extra.get("quiz_reference", ""),
+                student_answer=extra.get("quiz_student_answer", ""),
+            )
+            reply = (
+                f"{answer_result['reply']}\n\n"
+                f"还想继续练习吗？回复「出题」或「结束」。"
+            )
+            orchestrator.save_conversation_turn(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                student_input=req.message,
+                assistant_reply=reply,
+                agent_name="quiz_direct_answer",
+            )
+            return ChatResponse(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                reply=reply,
+                agent_name="quiz_direct_answer",
+                stage="quiz_direct_answer",
+                is_guided=False,
+                metadata={"mode": "quiz_direct"},
+            )
+
         initial_state: TutorState = {
             "student_id": req.student_id,
             "session_id": req.session_id,
@@ -46,12 +343,12 @@ async def chat(req: ChatRequest) -> ChatResponse:
             "student_profile": None,
             "is_info_complete": False,
             "just_completed": False,
-            "mode": "chat",
-            "quiz_topic": "",
-            "quiz_difficulty": "",
-            "quiz_question": "",
-            "quiz_reference": "",
-            "quiz_student_answer": "",
+            "mode": mode,
+            "quiz_topic": extra.get("quiz_topic", ""),
+            "quiz_difficulty": extra.get("quiz_difficulty", "适中"),
+            "quiz_question": extra.get("quiz_question", ""),
+            "quiz_reference": extra.get("quiz_reference", ""),
+            "quiz_student_answer": extra.get("quiz_student_answer", ""),
             "quiz_judge_result": None,
             "stage": "start",
             "kb_search_result": None,
@@ -117,6 +414,20 @@ async def chat_stream(req: ChatRequest):
     """Send a message and receive a streaming response via SSE."""
     async def event_generator():
         try:
+            # Load session history for topic inference when student says "出题" without explicit topic
+            session_history = []
+            try:
+                lt = LongTermMemory()
+                session_history = lt.get_session_messages(req.session_id, limit=50)
+                logger.info(f"[chat_stream] loaded {len(session_history)} messages for session={req.session_id}")
+            except Exception as e:
+                logger.warning(f"[chat_stream] failed to load session history: {e}")
+                pass
+
+            # Detect mode
+            mode, extra = _detect_mode(req.message, None, session_history)
+            logger.info(f"[chat_stream] detected mode={mode} extra={extra} for message='{req.message}'")
+
             initial_state: TutorState = {
                 "student_id": req.student_id,
                 "session_id": req.session_id,
@@ -124,12 +435,12 @@ async def chat_stream(req: ChatRequest):
                 "student_profile": None,
                 "is_info_complete": False,
                 "just_completed": False,
-                "mode": "chat",
-                "quiz_topic": "",
-                "quiz_difficulty": "",
-                "quiz_question": "",
-                "quiz_reference": "",
-                "quiz_student_answer": "",
+                "mode": mode,
+                "quiz_topic": extra.get("quiz_topic", ""),
+                "quiz_difficulty": extra.get("quiz_difficulty", "适中"),
+                "quiz_question": extra.get("quiz_question", ""),
+                "quiz_reference": extra.get("quiz_reference", ""),
+                "quiz_student_answer": extra.get("quiz_student_answer", ""),
                 "quiz_judge_result": None,
                 "stage": "start",
                 "kb_search_result": None,
@@ -141,6 +452,169 @@ async def chat_stream(req: ChatRequest):
                 "messages": [],
                 "error": None,
             }
+
+            # If mode is quiz_question, skip normal pipeline and go directly to generate_quiz
+            if mode == "quiz_question":
+                logger.info(f"[chat_stream] ENTER quiz_question branch for student={req.student_id}")
+                from app.agents.quiz_agent import QuizAgent
+                quiz_agent = QuizAgent()
+                quiz_topic = extra.get("quiz_topic", "")
+                logger.info(f"[chat_stream] raw quiz_topic from extra: '{quiz_topic}'")
+                if not quiz_topic or len(quiz_topic) < 2:
+                    quiz_topic = _infer_topic_from_history(session_history)
+                    logger.info(f"[chat_stream] re-inferred quiz_topic from history: '{quiz_topic}'")
+                if not quiz_topic or len(quiz_topic) < 2:
+                    quiz_topic = "数学"
+                    logger.info(f"[chat_stream] using default quiz_topic: '{quiz_topic}'")
+                logger.info(f"[chat_stream] final quiz_topic passed to agent: '{quiz_topic}'")
+                quiz_result = quiz_agent.generate_question(
+                    student_id=req.student_id,
+                    topic=quiz_topic,
+                    difficulty=extra.get("quiz_difficulty", "适中"),
+                )
+                reply = (
+                    f"📚 **练习题**\n\n{quiz_result['question']}\n\n"
+                    f"💡 提示：{quiz_result['hint']}\n\n"
+                    f"请直接回复你的答案，我会帮你评判。"
+                )
+                logger.info(f"[chat_stream] quiz_question reply generated, length={len(reply)}")
+
+                yield f"data: {json.dumps({'type': 'meta', 'agent_name': 'generate_quiz', 'stage': 'generate_quiz', 'is_guided': False})}\n\n"
+
+                chunk_size = 2
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.02)
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+                orchestrator.save_conversation_turn(
+                    student_id=req.student_id,
+                    session_id=req.session_id,
+                    student_input=req.message,
+                    assistant_reply=reply,
+                    agent_name="generate_quiz",
+                )
+                logger.info("[chat_stream] quiz_question branch DONE")
+                return
+
+            # If mode is quiz_answer, judge the answer directly
+            if mode == "quiz_answer":
+                from app.agents.quiz_agent import QuizAgent
+                quiz_agent = QuizAgent()
+                judge_result = quiz_agent.judge_answer(
+                    student_id=req.student_id,
+                    question=extra.get("quiz_question", ""),
+                    reference_answer=extra.get("quiz_reference", ""),
+                    student_answer=req.message,
+                )
+                if judge_result["is_correct"]:
+                    reply = (
+                        f"✅ **回答正确！**\n\n{judge_result['evaluation']}\n\n"
+                        f"{judge_result['encouragement']}\n\n"
+                        f"想挑战更难的题目吗？回复「更难」或「结束」。"
+                    )
+                    agent_name = "judge_answer"
+                else:
+                    reply = (
+                        f"❌ **回答有误**\n\n{judge_result['evaluation']}\n\n"
+                        f"{judge_result['encouragement']}\n\n"
+                        f"你可以：\n"
+                        f"1. 回复「引导」—— 我会用苏格拉底提问法一步步引导你\n"
+                        f"2. 回复「答案」—— 我直接告诉你正确答案\n"
+                        f"3. 回复「结束」—— 回到正常问答"
+                    )
+                    agent_name = "judge_answer"
+
+                yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': agent_name, 'is_guided': False})}\n\n"
+
+                chunk_size = 2
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.02)
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+                orchestrator.save_conversation_turn(
+                    student_id=req.student_id,
+                    session_id=req.session_id,
+                    student_input=req.message,
+                    assistant_reply=reply,
+                    agent_name=agent_name,
+                )
+                return
+
+            # If mode is quiz_socratic, provide Socratic guidance
+            if mode == "quiz_socratic":
+                from app.agents.quiz_agent import QuizAgent
+                quiz_agent = QuizAgent()
+                guide_result = quiz_agent.socratic_guide(
+                    student_id=req.student_id,
+                    question=extra.get("quiz_question", ""),
+                    reference_answer=extra.get("quiz_reference", ""),
+                    student_answer=extra.get("quiz_student_answer", ""),
+                )
+                reply = (
+                    f"🤔 **引导思考**\n\n{guide_result['reply']}\n\n"
+                    f"想好了可以回复你的新答案，或者回复「答案」直接查看正确解答。"
+                )
+                agent_name = "quiz_socratic"
+
+                yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': agent_name, 'is_guided': False})}\n\n"
+
+                chunk_size = 2
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.02)
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+                orchestrator.save_conversation_turn(
+                    student_id=req.student_id,
+                    session_id=req.session_id,
+                    student_input=req.message,
+                    assistant_reply=reply,
+                    agent_name=agent_name,
+                )
+                return
+
+            # If mode is quiz_direct, give direct answer
+            if mode == "quiz_direct":
+                from app.agents.quiz_agent import QuizAgent
+                quiz_agent = QuizAgent()
+                answer_result = quiz_agent.direct_answer(
+                    student_id=req.student_id,
+                    question=extra.get("quiz_question", ""),
+                    reference_answer=extra.get("quiz_reference", ""),
+                    student_answer=extra.get("quiz_student_answer", ""),
+                )
+                reply = (
+                    f"{answer_result['reply']}\n\n"
+                    f"还想继续练习吗？回复「出题」或「结束」。"
+                )
+                agent_name = "quiz_direct_answer"
+
+                yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': agent_name, 'is_guided': False})}\n\n"
+
+                chunk_size = 2
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.02)
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+                orchestrator.save_conversation_turn(
+                    student_id=req.student_id,
+                    session_id=req.session_id,
+                    student_input=req.message,
+                    assistant_reply=reply,
+                    agent_name=agent_name,
+                )
+                return
 
             config = {"configurable": {"thread_id": req.session_id}}
             result = tutor_graph.invoke(initial_state, config=config)
