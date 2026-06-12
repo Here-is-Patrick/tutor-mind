@@ -14,6 +14,7 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [streaming, setStreaming] = useState(false)
+  const [quizMode, setQuizMode] = useState(false)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const abortRef = useRef<(() => void) | null>(null)
 
@@ -23,6 +24,7 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
 
     setMessages([])
     setLoading(true)
+    setQuizMode(false)
 
     getChatHistory(studentId, sessionId)
       .then((res) => {
@@ -98,6 +100,10 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
                 : m
             )
           )
+          // Detect quiz mode from agent name
+          if (meta.agent_name === 'generate_quiz' || meta.agent_name === 'judge_answer') {
+            setQuizMode(true)
+          }
         },
         onContent: (chunk) => {
           currentContent += chunk
@@ -139,6 +145,10 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
       info_collector: '信息收集',
       socratic_tutor: '苏格拉底导师',
       search_agent: '知识搜索',
+      generate_quiz: '出题老师',
+      judge_answer: '阅卷老师',
+      quiz_socratic: '苏格拉底引导',
+      quiz_direct_answer: '答案解析',
     }
     return labels[agentName || ''] || agentName || 'TutorMind'
   }
@@ -153,6 +163,35 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
       console.error('Failed to delete message:', err)
     }
   }
+
+  const quickButtons = quizMode && !streaming ? (
+    <div className="flex flex-wrap gap-2 px-4 pb-2">
+      <button
+        onClick={() => { setInput('引导'); setTimeout(() => handleSend(), 10) }}
+        className="px-3 py-1 text-xs bg-purple-100 text-purple-700 rounded-full hover:bg-purple-200 transition-colors"
+      >
+        引导
+      </button>
+      <button
+        onClick={() => { setInput('答案'); setTimeout(() => handleSend(), 10) }}
+        className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors"
+      >
+        答案
+      </button>
+      <button
+        onClick={() => { setInput('更难'); setTimeout(() => handleSend(), 10) }}
+        className="px-3 py-1 text-xs bg-orange-100 text-orange-700 rounded-full hover:bg-orange-200 transition-colors"
+      >
+        更难
+      </button>
+      <button
+        onClick={() => { setInput('结束'); setTimeout(() => handleSend(), 10) }}
+        className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors"
+      >
+        结束
+      </button>
+    </div>
+  ) : null
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -250,6 +289,9 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
 
         <div ref={messagesEnd} />
       </div>
+
+      {/* Quick buttons */}
+      {quickButtons}
 
       {/* Input */}
       <div className="border-t border-gray-100 px-4 py-3">

@@ -33,7 +33,7 @@ export async function sendMessage(data: ChatRequest): Promise<ChatResponse> {
 // ── Chat (Streaming SSE) ──────────────────────────────────
 
 export interface StreamCallbacks {
-  onMeta?: (meta: { agent_name: string; stage: string; is_guided: boolean }) => void
+  onMeta?: (meta: { agent_name: string; stage: string; is_guided: boolean; mode?: string }) => void
   onContent?: (chunk: string) => void
   onDone?: () => void
   onError?: (error: string) => void
