@@ -56,6 +56,16 @@ def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict
                 "quiz_student_answer": student_input,
                 "quiz_question": prev_state.get("quiz_question", ""),
                 "quiz_reference": prev_state.get("quiz_reference", ""),
+                "quiz_topic": prev_state.get("quiz_topic", ""),
+            }
+
+        # Previous turn was generate_quiz → student is answering the quiz
+        if prev_mode == "generate_quiz":
+            return "quiz_answer", {
+                "quiz_student_answer": student_input,
+                "quiz_question": prev_state.get("quiz_question", ""),
+                "quiz_reference": prev_state.get("quiz_reference", ""),
+                "quiz_topic": prev_state.get("quiz_topic", ""),
             }
 
         # Previous turn was judge_answer → student is choosing follow-up
@@ -66,11 +76,14 @@ def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict
                     "quiz_question": prev_state.get("quiz_question", ""),
                     "quiz_reference": prev_state.get("quiz_reference", ""),
                     "quiz_student_answer": prev_state.get("quiz_student_answer", ""),
+                    "quiz_topic": prev_state.get("quiz_topic", ""),
                 }
             elif any(k in text for k in ["2", "直接", "答案", "告诉"]):
                 return "quiz_direct", {
                     "quiz_question": prev_state.get("quiz_question", ""),
                     "quiz_reference": prev_state.get("quiz_reference", ""),
+                    "quiz_student_answer": prev_state.get("quiz_student_answer", ""),
+                    "quiz_topic": prev_state.get("quiz_topic", ""),
                 }
             elif any(k in text for k in ["3", "简单", "换"]):
                 return "quiz_question", {
@@ -125,6 +138,138 @@ async def chat(req: ChatRequest) -> ChatResponse:
     try:
         # Detect mode
         mode, extra = _detect_mode(req.message, None)
+
+        # Direct quiz modes bypass the graph
+        if mode == "quiz_question":
+            from app.agents.quiz_agent import QuizAgent
+            quiz_agent = QuizAgent()
+            quiz_result = quiz_agent.generate_question(
+                student_id=req.student_id,
+                topic=extra.get("quiz_topic", req.message),
+                difficulty=extra.get("quiz_difficulty", "适中"),
+            )
+            reply = (
+                f"📚 **练习题**\n\n{quiz_result['question']}\n\n"
+                f"💡 提示：{quiz_result['hint']}\n\n"
+                f"请直接回复你的答案，我会帮你评判。"
+            )
+            orchestrator.save_conversation_turn(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                student_input=req.message,
+                assistant_reply=reply,
+                agent_name="generate_quiz",
+            )
+            return ChatResponse(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                reply=reply,
+                agent_name="generate_quiz",
+                stage="generate_quiz",
+                is_guided=False,
+                metadata={"mode": "quiz_question"},
+            )
+
+        if mode == "quiz_answer":
+            from app.agents.quiz_agent import QuizAgent
+            quiz_agent = QuizAgent()
+            judge_result = quiz_agent.judge_answer(
+                student_id=req.student_id,
+                question=extra.get("quiz_question", ""),
+                reference_answer=extra.get("quiz_reference", ""),
+                student_answer=req.message,
+            )
+            if judge_result["is_correct"]:
+                reply = (
+                    f"✅ **回答正确！**\n\n{judge_result['evaluation']}\n\n"
+                    f"{judge_result['encouragement']}\n\n"
+                    f"想挑战更难的题目吗？回复「更难」或「结束」。"
+                )
+            else:
+                reply = (
+                    f"❌ **回答有误**\n\n{judge_result['evaluation']}\n\n"
+                    f"{judge_result['encouragement']}\n\n"
+                    f"你可以：\n"
+                    f"1. 回复「引导」—— 我会用苏格拉底提问法一步步引导你\n"
+                    f"2. 回复「答案」—— 我直接告诉你正确答案\n"
+                    f"3. 回复「结束」—— 回到正常问答"
+                )
+            orchestrator.save_conversation_turn(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                student_input=req.message,
+                assistant_reply=reply,
+                agent_name="judge_answer",
+            )
+            return ChatResponse(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                reply=reply,
+                agent_name="judge_answer",
+                stage="judge_answer",
+                is_guided=False,
+                metadata={"mode": "quiz_answer", "is_correct": judge_result["is_correct"]},
+            )
+
+        if mode == "quiz_socratic":
+            from app.agents.quiz_agent import QuizAgent
+            quiz_agent = QuizAgent()
+            guide_result = quiz_agent.socratic_guide(
+                student_id=req.student_id,
+                question=extra.get("quiz_question", ""),
+                reference_answer=extra.get("quiz_reference", ""),
+                student_answer=extra.get("quiz_student_answer", ""),
+            )
+            reply = (
+                f"🤔 **引导思考**\n\n{guide_result['reply']}\n\n"
+                f"想好了可以回复你的新答案，或者回复「答案」直接查看正确解答。"
+            )
+            orchestrator.save_conversation_turn(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                student_input=req.message,
+                assistant_reply=reply,
+                agent_name="quiz_socratic",
+            )
+            return ChatResponse(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                reply=reply,
+                agent_name="quiz_socratic",
+                stage="quiz_socratic",
+                is_guided=False,
+                metadata={"mode": "quiz_socratic"},
+            )
+
+        if mode == "quiz_direct":
+            from app.agents.quiz_agent import QuizAgent
+            quiz_agent = QuizAgent()
+            answer_result = quiz_agent.direct_answer(
+                student_id=req.student_id,
+                question=extra.get("quiz_question", ""),
+                reference_answer=extra.get("quiz_reference", ""),
+                student_answer=extra.get("quiz_student_answer", ""),
+            )
+            reply = (
+                f"{answer_result['reply']}\n\n"
+                f"还想继续练习吗？回复「出题」或「结束」。"
+            )
+            orchestrator.save_conversation_turn(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                student_input=req.message,
+                assistant_reply=reply,
+                agent_name="quiz_direct_answer",
+            )
+            return ChatResponse(
+                student_id=req.student_id,
+                session_id=req.session_id,
+                reply=reply,
+                agent_name="quiz_direct_answer",
+                stage="quiz_direct_answer",
+                is_guided=False,
+                metadata={"mode": "quiz_direct"},
+            )
 
         initial_state: TutorState = {
             "student_id": req.student_id,
@@ -232,6 +377,157 @@ async def chat_stream(req: ChatRequest):
                 "messages": [],
                 "error": None,
             }
+
+            # If mode is quiz_question, skip normal pipeline and go directly to generate_quiz
+            if mode == "quiz_question":
+                from app.agents.quiz_agent import QuizAgent
+                quiz_agent = QuizAgent()
+                quiz_result = quiz_agent.generate_question(
+                    student_id=req.student_id,
+                    topic=extra.get("quiz_topic", req.message),
+                    difficulty=extra.get("quiz_difficulty", "适中"),
+                )
+                reply = (
+                    f"📚 **练习题**\n\n{quiz_result['question']}\n\n"
+                    f"💡 提示：{quiz_result['hint']}\n\n"
+                    f"请直接回复你的答案，我会帮你评判。"
+                )
+
+                yield f"data: {json.dumps({'type': 'meta', 'agent_name': 'generate_quiz', 'stage': 'generate_quiz', 'is_guided': False})}\n\n"
+
+                chunk_size = 2
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.02)
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+                orchestrator.save_conversation_turn(
+                    student_id=req.student_id,
+                    session_id=req.session_id,
+                    student_input=req.message,
+                    assistant_reply=reply,
+                    agent_name="generate_quiz",
+                )
+                return
+
+            # If mode is quiz_answer, judge the answer directly
+            if mode == "quiz_answer":
+                from app.agents.quiz_agent import QuizAgent
+                quiz_agent = QuizAgent()
+                judge_result = quiz_agent.judge_answer(
+                    student_id=req.student_id,
+                    question=extra.get("quiz_question", ""),
+                    reference_answer=extra.get("quiz_reference", ""),
+                    student_answer=req.message,
+                )
+                if judge_result["is_correct"]:
+                    reply = (
+                        f"✅ **回答正确！**\n\n{judge_result['evaluation']}\n\n"
+                        f"{judge_result['encouragement']}\n\n"
+                        f"想挑战更难的题目吗？回复「更难」或「结束」。"
+                    )
+                    agent_name = "judge_answer"
+                else:
+                    reply = (
+                        f"❌ **回答有误**\n\n{judge_result['evaluation']}\n\n"
+                        f"{judge_result['encouragement']}\n\n"
+                        f"你可以：\n"
+                        f"1. 回复「引导」—— 我会用苏格拉底提问法一步步引导你\n"
+                        f"2. 回复「答案」—— 我直接告诉你正确答案\n"
+                        f"3. 回复「结束」—— 回到正常问答"
+                    )
+                    agent_name = "judge_answer"
+
+                yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': agent_name, 'is_guided': False})}\n\n"
+
+                chunk_size = 2
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.02)
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+                orchestrator.save_conversation_turn(
+                    student_id=req.student_id,
+                    session_id=req.session_id,
+                    student_input=req.message,
+                    assistant_reply=reply,
+                    agent_name=agent_name,
+                )
+                return
+
+            # If mode is quiz_socratic, provide Socratic guidance
+            if mode == "quiz_socratic":
+                from app.agents.quiz_agent import QuizAgent
+                quiz_agent = QuizAgent()
+                guide_result = quiz_agent.socratic_guide(
+                    student_id=req.student_id,
+                    question=extra.get("quiz_question", ""),
+                    reference_answer=extra.get("quiz_reference", ""),
+                    student_answer=extra.get("quiz_student_answer", ""),
+                )
+                reply = (
+                    f"🤔 **引导思考**\n\n{guide_result['reply']}\n\n"
+                    f"想好了可以回复你的新答案，或者回复「答案」直接查看正确解答。"
+                )
+                agent_name = "quiz_socratic"
+
+                yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': agent_name, 'is_guided': False})}\n\n"
+
+                chunk_size = 2
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.02)
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+                orchestrator.save_conversation_turn(
+                    student_id=req.student_id,
+                    session_id=req.session_id,
+                    student_input=req.message,
+                    assistant_reply=reply,
+                    agent_name=agent_name,
+                )
+                return
+
+            # If mode is quiz_direct, give direct answer
+            if mode == "quiz_direct":
+                from app.agents.quiz_agent import QuizAgent
+                quiz_agent = QuizAgent()
+                answer_result = quiz_agent.direct_answer(
+                    student_id=req.student_id,
+                    question=extra.get("quiz_question", ""),
+                    reference_answer=extra.get("quiz_reference", ""),
+                    student_answer=extra.get("quiz_student_answer", ""),
+                )
+                reply = (
+                    f"{answer_result['reply']}\n\n"
+                    f"还想继续练习吗？回复「出题」或「结束」。"
+                )
+                agent_name = "quiz_direct_answer"
+
+                yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': agent_name, 'is_guided': False})}\n\n"
+
+                chunk_size = 2
+                for i in range(0, len(reply), chunk_size):
+                    chunk = reply[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.02)
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+                orchestrator.save_conversation_turn(
+                    student_id=req.student_id,
+                    session_id=req.session_id,
+                    student_input=req.message,
+                    assistant_reply=reply,
+                    agent_name=agent_name,
+                )
+                return
 
             config = {"configurable": {"thread_id": req.session_id}}
             result = tutor_graph.invoke(initial_state, config=config)
