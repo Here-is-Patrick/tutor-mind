@@ -141,6 +141,26 @@ def _detect_mode(student_input: str, prev_state: dict | None, session_history: l
             logger.info(f"[_detect_mode] fallback topic from all history: '{topic}'")
         if not topic or len(topic) < 2:
             topic = "数学"  # default
+        logger.info(f"[_detect_mode] final quiz_topic='{topic}'")
+
+        # Force topic to be the inferred concept if the raw topic contains mostly generic words
+        generic_words = {"简单", "容易", "基础", "适中", "一般", "普通", "困难", "难", "挑战", "高级", "一道", "一个", "一些", "的", "题", "出", "考", "练", "做", "测", "试"}
+        # Check if topic contains any meaningful concept; if not, override with history
+        # Also override if the topic looks like just generic words even if len >= 2
+        # We consider a topic meaningful if it contains at least 2 characters that are NOT generic words
+        non_generic_count = sum(1 for ch in topic if ch not in generic_words)
+        topic_has_meaning = non_generic_count >= 2 and len(topic) >= 2
+        logger.info(f"[_detect_mode] topic='{topic}' non_generic_count={non_generic_count} topic_has_meaning={topic_has_meaning}")
+        if not topic_has_meaning:
+            inferred = _infer_topic_from_history(session_history)
+            if inferred:
+                topic = inferred
+                logger.info(f"[_detect_mode] overridden generic topic with inferred: '{topic}'")
+            else:
+                inferred = _extract_topic_from_all_history(session_history)
+                if inferred:
+                    topic = inferred
+                    logger.info(f"[_detect_mode] overridden generic topic with fallback: '{topic}'")
 
         # Detect difficulty
         difficulty = "适中"
@@ -486,13 +506,15 @@ async def chat_stream(req: ChatRequest):
             session_history = []
             try:
                 lt = LongTermMemory()
-                session_history = lt.get_session_messages(req.session_id, limit=10)
-            except Exception:
+                session_history = lt.get_session_messages(req.session_id, limit=50)
+                logger.info(f"[chat_stream] loaded {len(session_history)} messages for session={req.session_id}")
+            except Exception as e:
+                logger.warning(f"[chat_stream] failed to load session history: {e}")
                 pass
 
             # Detect mode
             mode, extra = _detect_mode(req.message, None, session_history)
-            logger.info(f"[chat_stream] detected mode={mode} for message='{req.message}'")
+            logger.info(f"[chat_stream] detected mode={mode} extra={extra} for message='{req.message}'")
 
             initial_state: TutorState = {
                 "student_id": req.student_id,
@@ -526,6 +548,7 @@ async def chat_stream(req: ChatRequest):
                 quiz_agent = QuizAgent()
                 # Ensure topic is meaningful; if empty, try to infer from history again
                 quiz_topic = extra.get("quiz_topic", "")
+                logger.info(f"[chat_stream] raw quiz_topic from extra: '{quiz_topic}'")
                 if not quiz_topic or len(quiz_topic) < 2:
                     quiz_topic = _infer_topic_from_history(session_history)
                     logger.info(f"[chat_stream] re-inferred quiz_topic from history: '{quiz_topic}'")
@@ -534,6 +557,8 @@ async def chat_stream(req: ChatRequest):
                     logger.info(f"[chat_stream] fallback quiz_topic from all history: '{quiz_topic}'")
                 if not quiz_topic or len(quiz_topic) < 2:
                     quiz_topic = req.message
+                    logger.info(f"[chat_stream] using raw message as quiz_topic: '{quiz_topic}'")
+                logger.info(f"[chat_stream] final quiz_topic passed to agent: '{quiz_topic}'")
                 quiz_result = quiz_agent.generate_question(
                     student_id=req.student_id,
                     topic=quiz_topic,
