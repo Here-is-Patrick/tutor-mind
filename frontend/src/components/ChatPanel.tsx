@@ -139,6 +139,10 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
       info_collector: '信息收集',
       socratic_tutor: '苏格拉底导师',
       search_agent: '知识搜索',
+      generate_quiz: '出题',
+      judge_answer: '评判',
+      quiz_socratic: '苏格拉底引导',
+      quiz_direct_answer: '直接解答',
     }
     return labels[agentName || ''] || agentName || 'TutorMind'
   }

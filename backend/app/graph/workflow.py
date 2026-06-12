@@ -18,6 +18,7 @@ from app.agents.info_collector import InfoCollectorAgent
 from app.agents.knowledge_retriever import KnowledgeRetrieverAgent
 from app.agents.socratic_tutor import SocraticTutorAgent
 from app.agents.search_agent import SearchAgent
+from app.agents.quiz_agent import QuizAgent
 from app.agents.orchestrator import OrchestratorAgent
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ info_collector = InfoCollectorAgent()
 kb_retriever = KnowledgeRetrieverAgent()
 socratic_tutor = SocraticTutorAgent()
 search_agent = SearchAgent()
+quiz_agent = QuizAgent()
 orchestrator = OrchestratorAgent()
 
 
@@ -123,8 +125,98 @@ def generate_answer(state: TutorState) -> TutorState:
         search_results=state.get("search_result", []),
         session_id=state["session_id"],
     )
-    state["final_reply"] = result["reply"]
+    state["final_reply"] = result["reply"] + "\n\n💡 要我出一道题来检验一下你的理解吗？你可以回复「出题」或「不用了」。"
     state["stage"] = "generate_answer"
+    return state
+
+
+def generate_quiz(state: TutorState) -> TutorState:
+    """
+    Node 5: Generate a quiz question.
+    """
+    logger.info(f"[{state['student_id']}] Stage: generate_quiz")
+    result = quiz_agent.generate_question(
+        student_id=state["student_id"],
+        topic=state.get("quiz_topic", state["student_input"]),
+        difficulty=state.get("quiz_difficulty", "适中"),
+    )
+    state["quiz_question"] = result["question"]
+    state["quiz_reference"] = result["reference_answer"]
+    state["final_reply"] = (
+        f"📚 **练习题**\n\n{result['question']}\n\n"
+        f"💡 提示：{result['hint']}\n\n"
+        f"请直接回复你的答案，我会帮你评判。"
+    )
+    state["stage"] = "generate_quiz"
+    return state
+
+
+def judge_answer(state: TutorState) -> TutorState:
+    """
+    Node 6: Judge student's quiz answer.
+    """
+    logger.info(f"[{state['student_id']}] Stage: judge_answer")
+    result = quiz_agent.judge_answer(
+        student_id=state["student_id"],
+        question=state.get("quiz_question", ""),
+        reference_answer=state.get("quiz_reference", ""),
+        student_answer=state["student_input"],
+    )
+    state["quiz_judge_result"] = result
+    if result["is_correct"]:
+        state["final_reply"] = (
+            f"✅ **回答正确！**\n\n{result['evaluation']}\n\n"
+            f"{result['encouragement']}\n\n"
+            f"想挑战更难的题目吗？回复「更难」或「结束」。"
+        )
+    else:
+        state["final_reply"] = (
+            f"❌ **回答有误**\n\n{result['evaluation']}\n\n"
+            f"{result['encouragement']}\n\n"
+            f"你可以：\n"
+            f"1. 回复「引导」—— 我会用苏格拉底提问法一步步引导你\n"
+            f"2. 回复「答案」—— 我直接告诉你正确答案\n"
+            f"3. 回复「结束」—— 回到正常问答"
+        )
+    state["stage"] = "judge_answer"
+    return state
+
+
+def quiz_socratic(state: TutorState) -> TutorState:
+    """
+    Node 7: Socratic guidance for wrong quiz answer.
+    """
+    logger.info(f"[{state['student_id']}] Stage: quiz_socratic")
+    result = quiz_agent.socratic_guide(
+        student_id=state["student_id"],
+        question=state.get("quiz_question", ""),
+        reference_answer=state.get("quiz_reference", ""),
+        student_answer=state.get("quiz_student_answer", ""),
+    )
+    state["final_reply"] = (
+        f"🤔 **引导思考**\n\n{result['reply']}\n\n"
+        f"想好了可以回复你的新答案，或者回复「答案」直接查看正确解答。"
+    )
+    state["stage"] = "quiz_socratic"
+    return state
+
+
+def quiz_direct_answer(state: TutorState) -> TutorState:
+    """
+    Node 8: Direct answer for quiz.
+    """
+    logger.info(f"[{state['student_id']}] Stage: quiz_direct_answer")
+    result = quiz_agent.direct_answer(
+        student_id=state["student_id"],
+        question=state.get("quiz_question", ""),
+        reference_answer=state.get("quiz_reference", ""),
+        student_answer=state.get("quiz_student_answer", ""),
+    )
+    state["final_reply"] = (
+        f"{result['reply']}\n\n"
+        f"还想继续练习吗？回复「出题」或「结束」。"
+    )
+    state["stage"] = "quiz_direct_answer"
     return state
 
 
@@ -155,6 +247,34 @@ def route_after_kb_search(state: TutorState) -> Literal["socratic_teach", "tavil
     return "tavily_search"
 
 
+def route_after_answer(state: TutorState) -> Literal["__end__", "generate_quiz"]:
+    """After generating answer: check if student wants a quiz."""
+    mode = state.get("mode", "chat")
+    if mode == "quiz_question":
+        return "generate_quiz"
+    return "__end__"
+
+
+def route_after_quiz(state: TutorState) -> Literal["judge_answer", "__end__"]:
+    """After generating quiz: student answers or exits."""
+    mode = state.get("mode", "chat")
+    if mode == "quiz_answer":
+        return "judge_answer"
+    return "__end__"
+
+
+def route_after_judge(state: TutorState) -> Literal["quiz_socratic", "quiz_direct_answer", "generate_quiz", "__end__"]:
+    """After judging answer: guide, direct answer, harder quiz, or end."""
+    mode = state.get("mode", "chat")
+    if mode == "quiz_socratic":
+        return "quiz_socratic"
+    if mode == "quiz_direct":
+        return "quiz_direct_answer"
+    if mode == "quiz_question":
+        return "generate_quiz"
+    return "__end__"
+
+
 # ── Build workflow ───────────────────────────────────────────────────
 
 def build_workflow() -> StateGraph:
@@ -168,6 +288,10 @@ def build_workflow() -> StateGraph:
     workflow.add_node("socratic_teach", socratic_teach)
     workflow.add_node("tavily_search", tavily_search)
     workflow.add_node("generate_answer", generate_answer)
+    workflow.add_node("generate_quiz", generate_quiz)
+    workflow.add_node("judge_answer", judge_answer)
+    workflow.add_node("quiz_socratic", quiz_socratic)
+    workflow.add_node("quiz_direct_answer", quiz_direct_answer)
 
     # Set entry point
     workflow.set_entry_point("check_student_info")
@@ -188,11 +312,32 @@ def build_workflow() -> StateGraph:
         route_after_kb_search,
         {"socratic_teach": "socratic_teach", "tavily_search": "tavily_search"},
     )
+    workflow.add_conditional_edges(
+        "generate_answer",
+        route_after_answer,
+        {"__end__": END, "generate_quiz": "generate_quiz"},
+    )
+    workflow.add_conditional_edges(
+        "generate_quiz",
+        route_after_quiz,
+        {"judge_answer": "judge_answer", "__end__": END},
+    )
+    workflow.add_conditional_edges(
+        "judge_answer",
+        route_after_judge,
+        {
+            "quiz_socratic": "quiz_socratic",
+            "quiz_direct_answer": "quiz_direct_answer",
+            "generate_quiz": "generate_quiz",
+            "__end__": END,
+        },
+    )
 
-    # Direct edges to END
+    # Direct edges
     workflow.add_edge("socratic_teach", END)
     workflow.add_edge("tavily_search", "generate_answer")
-    workflow.add_edge("generate_answer", END)
+    workflow.add_edge("quiz_socratic", END)
+    workflow.add_edge("quiz_direct_answer", END)
 
     return workflow
 
