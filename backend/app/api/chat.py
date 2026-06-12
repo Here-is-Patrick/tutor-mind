@@ -39,28 +39,6 @@ orchestrator = get_orchestrator()
 async def chat(req: ChatRequest) -> ChatResponse:
     """Send a message to the tutor and get a response."""
     try:
-        # Check if we should continue a Socratic loop based on recent messages
-        in_socratic_loop = False
-        try:
-            lt = LongTermMemory()
-            recent = lt.get_session_messages(req.session_id, limit=5)
-            if len(recent) >= 2:
-                last_assistant = None
-                for m in reversed(recent):
-                    if m["role"] == "assistant" and m.get("agent_name") == "socratic_tutor":
-                        last_assistant = m
-                        break
-                if last_assistant:
-                    last_student = None
-                    for m in reversed(recent):
-                        if m["role"] == "student":
-                            last_student = m
-                            break
-                    if last_student and last_student["content"] == req.message:
-                        in_socratic_loop = True
-        except Exception:
-            pass
-
         initial_state: TutorState = {
             "student_id": req.student_id,
             "session_id": req.session_id,
@@ -68,13 +46,6 @@ async def chat(req: ChatRequest) -> ChatResponse:
             "student_profile": None,
             "is_info_complete": False,
             "just_completed": False,
-            "mode": "chat",
-            "quiz_topic": "",
-            "quiz_difficulty": "适中",
-            "quiz_question": "",
-            "quiz_reference": "",
-            "quiz_student_answer": "",
-            "quiz_judge_result": None,
             "stage": "start",
             "kb_search_result": None,
             "kb_hit": False,
@@ -84,7 +55,6 @@ async def chat(req: ChatRequest) -> ChatResponse:
             "is_weak_foundation": False,
             "messages": [],
             "error": None,
-            "in_socratic_loop": in_socratic_loop,
         }
 
         config = {"configurable": {"thread_id": req.session_id}}
@@ -122,7 +92,6 @@ async def chat(req: ChatRequest) -> ChatResponse:
             metadata={
                 "kb_hit": final_state["kb_hit"],
                 "is_weak_foundation": final_state["is_weak_foundation"],
-                "mode": final_state.get("mode", "chat"),
             },
         )
 
@@ -140,29 +109,6 @@ async def chat_stream(req: ChatRequest):
     """Send a message and receive a streaming response via SSE."""
     async def event_generator():
         try:
-            # Check if we should continue a Socratic loop based on recent messages
-            in_socratic_loop = False
-            try:
-                lt = LongTermMemory()
-                recent = lt.get_session_messages(req.session_id, limit=5)
-                if len(recent) >= 2:
-                    last_assistant = None
-                    for m in reversed(recent):
-                        if m["role"] == "assistant" and m.get("agent_name") == "socratic_tutor":
-                            last_assistant = m
-                            break
-                    if last_assistant:
-                        last_student = None
-                        for m in reversed(recent):
-                            if m["role"] == "student":
-                                last_student = m
-                                break
-                        if last_student and last_student["content"] == req.message:
-                            # The last assistant was socratic_tutor and this is the student's reply
-                            in_socratic_loop = True
-            except Exception:
-                pass
-
             initial_state: TutorState = {
                 "student_id": req.student_id,
                 "session_id": req.session_id,
@@ -170,13 +116,6 @@ async def chat_stream(req: ChatRequest):
                 "student_profile": None,
                 "is_info_complete": False,
                 "just_completed": False,
-                "mode": "chat",
-                "quiz_topic": "",
-                "quiz_difficulty": "适中",
-                "quiz_question": "",
-                "quiz_reference": "",
-                "quiz_student_answer": "",
-                "quiz_judge_result": None,
                 "stage": "start",
                 "kb_search_result": None,
                 "kb_hit": False,
@@ -186,7 +125,6 @@ async def chat_stream(req: ChatRequest):
                 "is_weak_foundation": False,
                 "messages": [],
                 "error": None,
-                "in_socratic_loop": in_socratic_loop,
             }
 
             config = {"configurable": {"thread_id": req.session_id}}
@@ -213,7 +151,7 @@ async def chat_stream(req: ChatRequest):
             agent_name = final_state["stage"]
 
             # Send metadata
-            yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': final_state['stage'], 'is_guided': final_state['kb_hit'], 'mode': final_state.get('mode', 'chat')})}\n\n"
+            yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': final_state['stage'], 'is_guided': final_state['kb_hit']})}\n\n"
 
             # Stream content
             chunk_size = 2

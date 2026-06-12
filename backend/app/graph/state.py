@@ -28,7 +28,6 @@ class TutorState(TypedDict):
         is_weak_foundation: Whether student has weak foundation
         messages:         Annotated list of conversation messages
         error:            Error message if any
-        in_socratic_loop: Whether we are currently in a Socratic dialogue loop
     """
 
     student_id: str
@@ -46,4 +45,3 @@ class TutorState(TypedDict):
     is_weak_foundation: bool
     messages: Annotated[list, add_messages]
     error: Optional[str]
-    in_socratic_loop: bool
