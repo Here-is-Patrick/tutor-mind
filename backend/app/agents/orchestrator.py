@@ -1,0 +1,104 @@
+"""
+Orchestrator Agent — system coordinator and LLM communication hub.
+"""
+
+import logging
+from typing import Optional
+
+import dashscope
+
+from app.config import settings
+from app.memory.short_term import ShortTermMemory
+from app.memory.long_term import LongTermMemory
+from app.tools.foundation_check import get_adaptive_instructions
+
+logger = logging.getLogger(__name__)
+
+# Session-level memory
+short_term_memory = ShortTermMemory()
+long_term_memory = LongTermMemory()
+
+
+class OrchestratorAgent:
+    """
+    Master orchestrator:
+    - Coordinates the full pipeline
+    - Provides LLM calling capability
+    - Manages conversation context
+    """
+
+    def __init__(self):
+        self.model = settings.llm_model
+
+    def call_llm(
+        self,
+        system_prompt: str,
+        user_message: str,
+        history: Optional[str] = None,
+        adaptive_instructions: Optional[str] = None,
+    ) -> str:
+        """Call the DashScope LLM and return the response text."""
+        messages = []
+
+        # Build system prompt
+        full_system = system_prompt
+        if adaptive_instructions:
+            full_system += f"\n\n{adaptive_instructions}"
+        messages.append({"role": "system", "content": full_system})
+
+        # Add history if available
+        if history:
+            messages.append({"role": "user", "content": f"对话历史:\n{history}"})
+
+        messages.append({"role": "user", "content": user_message})
+
+        try:
+            # Set API key globally for dashscope
+            dashscope.api_key = settings.dashscope_api_key
+
+            resp = dashscope.Generation.call(
+                model=self.model,
+                messages=messages,
+                result_format="message",
+            )
+            if resp.status_code == 200:
+                return resp.output.choices[0].message.content
+            else:
+                logger.error(f"LLM call failed: {resp.code} - {resp.message}")
+                return f"抱歉，我暂时无法回答这个问题。请稍后再试。（错误：{resp.code}）"
+        except Exception as e:
+            logger.error(f"LLM call exception: {e}")
+            return "抱歉，系统遇到了一个技术问题，请稍后再试。"
+
+    def save_conversation_turn(
+        self,
+        student_id: str,
+        session_id: str,
+        student_input: str,
+        assistant_reply: str,
+        agent_name: str = "orchestrator",
+    ):
+        """Save a conversation turn to both short-term and long-term memory."""
+        short_term_memory.add(session_id, "student", student_input)
+        short_term_memory.add(session_id, "assistant", assistant_reply)
+
+        long_term_memory.save_message(student_id, session_id, "student", student_input)
+        long_term_memory.save_message(
+            student_id, session_id, "assistant", assistant_reply, agent_name=agent_name
+        )
+
+    def get_conversation_context(self, session_id: str, limit: int = 10) -> str:
+        """Get recent conversation context for a session."""
+        return short_term_memory.get_formatted(session_id, limit)
+
+
+# ── Shared singleton ──────────────────────────────────────────────────
+
+_orchestrator: Optional[OrchestratorAgent] = None
+
+
+def get_orchestrator() -> OrchestratorAgent:
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = OrchestratorAgent()
+    return _orchestrator
