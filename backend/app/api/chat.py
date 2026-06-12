@@ -45,6 +45,7 @@ def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict
     Returns (mode, extra_state).
     """
     text = student_input.strip().lower()
+    logger.info(f"[_detect_mode] input='{student_input}' text='{text}'")
 
     # If previous state exists and we're in quiz mode
     if prev_state:
@@ -104,12 +105,28 @@ def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict
                 return "quiz_question", {"quiz_topic": prev_state.get("quiz_topic", "")}
             return "chat", {}
 
-    # Fresh quiz request
-    if any(k in text for k in _QUIZ_KEYWORDS):
-        # Extract topic from input (remove quiz keywords)
+    # Fresh quiz request — check if ANY keyword appears as a substring
+    matched_kw = [k for k in _QUIZ_KEYWORDS if k in text]
+    # Also check if the individual characters of multi-char keywords are all present
+    # (e.g. "出一道简单的题" contains both '出' and '题' but not "出题" as substring)
+    if not matched_kw:
+        for k in _QUIZ_KEYWORDS:
+            if len(k) > 1 and all(ch in text for ch in k):
+                matched_kw.append(k)
+                break
+    logger.info(f"[_detect_mode] matched quiz keywords: {matched_kw}")
+    if matched_kw:
+        # Extract topic from input (remove matched quiz keyword characters)
         topic = student_input
-        for kw in _QUIZ_KEYWORDS:
-            topic = topic.replace(kw, "").replace(kw.lower(), "")
+        # Remove the matched keyword (prefer the first matched multi-char keyword)
+        remove_chars = set()
+        for kw in matched_kw:
+            if len(kw) > 1:
+                remove_chars.update(kw)
+            else:
+                remove_chars.add(kw)
+        for ch in remove_chars:
+            topic = topic.replace(ch, "")
         topic = topic.strip(" ，。！？")
         if not topic:
             topic = "数学"  # default
@@ -121,8 +138,10 @@ def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict
                 difficulty = diff
                 break
 
+        logger.info(f"[_detect_mode] -> quiz_question topic='{topic}' difficulty='{difficulty}'")
         return "quiz_question", {"quiz_topic": topic, "quiz_difficulty": difficulty}
 
+    logger.info("[_detect_mode] -> chat")
     return "chat", {}
 
 
@@ -352,6 +371,7 @@ async def chat_stream(req: ChatRequest):
         try:
             # Detect mode
             mode, extra = _detect_mode(req.message, None)
+            logger.info(f"[chat_stream] detected mode={mode} for message='{req.message}'")
 
             initial_state: TutorState = {
                 "student_id": req.student_id,
@@ -380,6 +400,7 @@ async def chat_stream(req: ChatRequest):
 
             # If mode is quiz_question, skip normal pipeline and go directly to generate_quiz
             if mode == "quiz_question":
+                logger.info(f"[chat_stream] ENTER quiz_question branch for student={req.student_id}")
                 from app.agents.quiz_agent import QuizAgent
                 quiz_agent = QuizAgent()
                 quiz_result = quiz_agent.generate_question(
@@ -392,6 +413,7 @@ async def chat_stream(req: ChatRequest):
                     f"💡 提示：{quiz_result['hint']}\n\n"
                     f"请直接回复你的答案，我会帮你评判。"
                 )
+                logger.info(f"[chat_stream] quiz_question reply generated, length={len(reply)}")
 
                 yield f"data: {json.dumps({'type': 'meta', 'agent_name': 'generate_quiz', 'stage': 'generate_quiz', 'is_guided': False})}\n\n"
 
@@ -410,6 +432,7 @@ async def chat_stream(req: ChatRequest):
                     assistant_reply=reply,
                     agent_name="generate_quiz",
                 )
+                logger.info("[chat_stream] quiz_question branch DONE")
                 return
 
             # If mode is quiz_answer, judge the answer directly
@@ -554,7 +577,7 @@ async def chat_stream(req: ChatRequest):
             agent_name = final_state["stage"]
 
             # Send metadata
-            yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': final_state['stage'], 'is_guided': final_state['kb_hit']})}\n\n"
+            yield f"data: {json.dumps({'type': 'meta', 'agent_name': agent_name, 'stage': final_state['stage'], 'is_guided': final_state['kb_hit'], 'mode': final_state.get('mode', 'chat')})}\n\n"
 
             # Stream content
             chunk_size = 2

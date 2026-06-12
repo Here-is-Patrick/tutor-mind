@@ -113,7 +113,7 @@ class QuizAgent:
         education: str = "高中",
     ) -> dict:
         """Generate a quiz question via Tavily search."""
-        logger.info(f"Generating quiz for {student_id}: topic={topic}, difficulty={difficulty}")
+        logger.info(f"[QuizAgent] Generating quiz for {student_id}: topic={topic}, difficulty={difficulty}")
 
         # Search for real questions/knowledge about the topic
         search_query = f"{topic} {difficulty}难度 练习题 题目"
@@ -142,6 +142,7 @@ class QuizAgent:
         try:
             cleaned = self._clean_json(reply)
             data = json.loads(cleaned)
+            logger.info(f"[QuizAgent] Generated question for {student_id}: {data.get('question', '')[:60]}...")
             return {
                 "question": data.get("question", "").strip(),
                 "reference_answer": data.get("reference_answer", "").strip(),
@@ -149,7 +150,7 @@ class QuizAgent:
                 "search_results": search_results,
             }
         except Exception as e:
-            logger.warning(f"Failed to parse quiz JSON: {e}, raw={reply[:200]}")
+            logger.warning(f"[QuizAgent] Failed to parse quiz JSON: {e}, raw={reply[:200]}")
             # Fallback: return a simple message
             return {
                 "question": f"请尝试解答以下问题：{topic}的相关知识你了解多少？",
@@ -166,7 +167,7 @@ class QuizAgent:
         student_answer: str,
     ) -> dict:
         """Judge if the student's answer is correct."""
-        logger.info(f"Judging answer for {student_id}: question={question[:40]}...")
+        logger.info(f"[QuizAgent] Judging answer for {student_id}: question={question[:40]}...")
 
         orchestrator = get_orchestrator()
 
@@ -181,13 +182,14 @@ class QuizAgent:
         try:
             cleaned = self._clean_json(reply)
             data = json.loads(cleaned)
+            logger.info(f"[QuizAgent] Judge result for {student_id}: is_correct={data.get('is_correct', False)}")
             return {
                 "is_correct": data.get("is_correct", False),
                 "evaluation": data.get("evaluation", "").strip(),
                 "encouragement": data.get("encouragement", "").strip(),
             }
         except Exception as e:
-            logger.warning(f"Failed to parse judge JSON: {e}, raw={reply[:200]}")
+            logger.warning(f"[QuizAgent] Failed to parse judge JSON: {e}, raw={reply[:200]}")
             # Simple fallback
             is_correct = student_answer.strip() == reference_answer.strip()
             return {
@@ -204,7 +206,7 @@ class QuizAgent:
         student_answer: str,
     ) -> dict:
         """Provide Socratic guidance when answer is wrong."""
-        logger.info(f"Socratic guide for {student_id}")
+        logger.info(f"[QuizAgent] Socratic guide for {student_id}")
 
         orchestrator = get_orchestrator()
         adaptive = get_adaptive_instructions(student_id)
@@ -227,7 +229,7 @@ class QuizAgent:
         student_answer: str,
     ) -> dict:
         """Give direct answer when student asks for it."""
-        logger.info(f"Direct answer for {student_id}")
+        logger.info(f"[QuizAgent] Direct answer for {student_id}")
 
         orchestrator = get_orchestrator()
 
