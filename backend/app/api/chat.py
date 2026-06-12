@@ -135,7 +135,11 @@ def _detect_mode(student_input: str, prev_state: dict | None, session_history: l
             logger.info(f"[_detect_mode] inferred topic from history: '{inferred}'")
             if inferred:
                 topic = inferred
-        if not topic:
+        # If still no valid topic, use a broader fallback by scanning all history for concepts
+        if not topic or len(topic) < 2:
+            topic = _extract_topic_from_all_history(session_history)
+            logger.info(f"[_detect_mode] fallback topic from all history: '{topic}'")
+        if not topic or len(topic) < 2:
             topic = "数学"  # default
 
         # Detect difficulty
@@ -208,6 +212,42 @@ def _infer_topic_from_history(session_history: list[dict] | None) -> str:
     if len(first_line) > 50:
         first_line = first_line[:50]
     return first_line
+
+
+def _extract_topic_from_all_history(session_history: list[dict] | None) -> str:
+    """Scan all messages (both student and assistant) in the session to find the core topic.
+    This is a broader fallback that looks at the entire conversation."""
+    if not session_history:
+        return ""
+    import re
+    concept_patterns = [
+        r"(?:^|[^一-龥])([一-龥]{1,8}定理)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}公式)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}法则)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}原理)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}函数)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}方程)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}不等式)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}数列)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}几何)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}向量)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}导数)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}积分)",
+    ]
+    # Count concept mentions across all messages
+    concept_counts: dict[str, int] = {}
+    for msg in session_history:
+        content = msg.get("content", "")
+        if not content:
+            continue
+        for pattern in concept_patterns:
+            matches = re.findall(pattern, content)
+            for m in matches:
+                concept_counts[m] = concept_counts.get(m, 0) + 1
+    if concept_counts:
+        # Return the most frequently mentioned concept
+        return max(concept_counts.items(), key=lambda x: x[1])[0]
+    return ""
 
 
 # ── Non-streaming chat ───────────────────────────────────────────────
@@ -484,9 +524,19 @@ async def chat_stream(req: ChatRequest):
                 logger.info(f"[chat_stream] ENTER quiz_question branch for student={req.student_id}")
                 from app.agents.quiz_agent import QuizAgent
                 quiz_agent = QuizAgent()
+                # Ensure topic is meaningful; if empty, try to infer from history again
+                quiz_topic = extra.get("quiz_topic", "")
+                if not quiz_topic or len(quiz_topic) < 2:
+                    quiz_topic = _infer_topic_from_history(session_history)
+                    logger.info(f"[chat_stream] re-inferred quiz_topic from history: '{quiz_topic}'")
+                if not quiz_topic or len(quiz_topic) < 2:
+                    quiz_topic = _extract_topic_from_all_history(session_history)
+                    logger.info(f"[chat_stream] fallback quiz_topic from all history: '{quiz_topic}'")
+                if not quiz_topic or len(quiz_topic) < 2:
+                    quiz_topic = req.message
                 quiz_result = quiz_agent.generate_question(
                     student_id=req.student_id,
-                    topic=extra.get("quiz_topic", req.message),
+                    topic=quiz_topic,
                     difficulty=extra.get("quiz_difficulty", "适中"),
                 )
                 reply = (
