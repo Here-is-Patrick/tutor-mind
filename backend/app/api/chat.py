@@ -456,3 +456,44 @@ async def delete_session(student_id: str, session_id: str):
     except Exception as e:
         logger.exception("Delete session error")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/message/{student_id}/{session_id}/{message_id}")
+async def delete_message(student_id: str, session_id: str, message_id: str):
+    """Delete a single message from a session."""
+    try:
+        from app.models.database import get_db
+        from app.memory.short_term import ShortTermMemory
+        from app.memory.long_term import LongTermMemory
+
+        with get_db() as db:
+            # Find the message by session_id + created_at (used as message_id in frontend)
+            row = db.execute(
+                """SELECT id FROM messages
+                   WHERE session_id = ? AND student_id = ? AND created_at = ?""",
+                (session_id, student_id, message_id),
+            ).fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail="Message not found")
+
+            db.execute(
+                "DELETE FROM messages WHERE id = ?",
+                (row["id"],),
+            )
+            db.commit()
+
+        # Rebuild short-term memory for this session from DB
+        stm = ShortTermMemory()
+        ltm = LongTermMemory()
+        db_msgs = ltm.get_session_messages(session_id, limit=20)
+        stm.clear(session_id)
+        for msg in db_msgs:
+            stm.add(session_id, msg["role"], msg["content"])
+
+        return {"student_id": student_id, "session_id": session_id, "message_id": message_id, "deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Delete message error")
+        raise HTTPException(status_code=500, detail=str(e))

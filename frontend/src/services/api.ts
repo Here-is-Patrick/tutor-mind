@@ -144,6 +144,15 @@ export async function deleteSession(studentId: string, sessionId: string): Promi
   return request(`/chat/session/${studentId}/${sessionId}`, { method: 'DELETE' })
 }
 
+export async function deleteMessage(studentId: string, sessionId: string, messageId: string): Promise<{
+  student_id: string
+  session_id: string
+  message_id: string
+  deleted: boolean
+}> {
+  return request(`/chat/message/${studentId}/${sessionId}/${encodeURIComponent(messageId)}`, { method: 'DELETE' })
+}
+
 // ── Students ──────────────────────────────────────────────
 
 export async function getStudent(

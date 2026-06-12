@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Send, Brain, User, Loader2 } from 'lucide-react'
+import { Send, Brain, User, Loader2, Trash2 } from 'lucide-react'
 import type { ChatMessage } from '../types'
-import { sendMessageStream, getChatHistory } from '../services/api'
+import { sendMessageStream, getChatHistory, deleteMessage } from '../services/api'
 
 interface ChatPanelProps {
   studentId: string
@@ -143,6 +143,17 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
     return labels[agentName || ''] || agentName || 'TutorMind'
   }
 
+  const handleDeleteMessage = async (msg: ChatMessage) => {
+    if (!msg.timestamp) return
+    if (!confirm('确定要删除这条消息吗？')) return
+    try {
+      await deleteMessage(studentId, sessionId, msg.timestamp)
+      setMessages((prev) => prev.filter((m) => m.id !== msg.id))
+    } catch (err) {
+      console.error('Failed to delete message:', err)
+    }
+  }
+
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       {/* Header */}
@@ -181,7 +192,7 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex gap-3 ${msg.role === 'student' ? 'flex-row-reverse' : ''}`}
+            className={`group flex gap-3 ${msg.role === 'student' ? 'flex-row-reverse' : ''}`}
           >
             {/* Avatar */}
             <div
@@ -200,7 +211,7 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
 
             {/* Bubble */}
             <div
-              className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+              className={`relative max-w-[75%] rounded-2xl px-4 py-3 ${
                 msg.role === 'student'
                   ? 'bg-primary-600 text-white rounded-tr-sm'
                   : 'bg-gray-100 text-gray-800 rounded-tl-sm'
@@ -225,6 +236,14 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
                   <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
                 ) : null}
               </div>
+              {/* Delete button */}
+              <button
+                onClick={() => handleDeleteMessage(msg)}
+                className={`absolute -top-2 ${msg.role === 'student' ? '-left-2' : '-right-2'} opacity-0 group-hover:opacity-100 p-1 rounded-full bg-white shadow-sm border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 transition-all`}
+                title="删除消息"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
             </div>
           </div>
         ))}
