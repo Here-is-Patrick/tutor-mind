@@ -71,9 +71,10 @@ def collect_info(state: TutorState) -> TutorState:
 def search_knowledge_base(state: TutorState) -> TutorState:
     """
     Node 2b: Search knowledge base for similar questions.
+    Only searches within the current student's records.
     """
     logger.info(f"[{state['student_id']}] Stage: search_knowledge_base")
-    result = kb_retriever.search(state["student_input"])
+    result = kb_retriever.search(state["student_input"], student_id=state["student_id"])
     state["kb_search_result"] = result
     state["kb_hit"] = result.get("found", False)
     state["socratic_context"] = result.get("best_match")

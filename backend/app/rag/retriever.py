@@ -25,9 +25,12 @@ class KnowledgeRetriever:
         self.vector_store = VectorStore()
         self.threshold = settings.similarity_threshold
 
-    def retrieve(self, question: str, top_k: int | None = None) -> dict:
+    def retrieve(self, question: str, top_k: int | None = None, student_id: str | None = None) -> dict:
         """
         Retrieve similar QAs for a question.
+
+        Args:
+            student_id: If provided, only return results belonging to this student.
 
         Returns:
             {
@@ -46,6 +49,14 @@ class KnowledgeRetriever:
 
         # Filter by threshold
         qualified = [m for m in all_matches if m["similarity_score"] >= self.threshold]
+
+        # Filter by student_id if provided (check metadata)
+        if student_id is not None:
+            qualified = [
+                m for m in qualified
+                if m.get("metadata", {}).get("student_id") == student_id
+            ]
+
         qualified.sort(key=lambda x: x["similarity_score"], reverse=True)
 
         best = qualified[0] if qualified else None

@@ -18,9 +18,12 @@ class KnowledgeRetrieverAgent:
     2. Determining if a match is good enough for Socratic teaching
     """
 
-    def search(self, question: str) -> dict:
+    def search(self, question: str, student_id: str | None = None) -> dict:
         """
         Search knowledge base for similar Q&A.
+
+        Args:
+            student_id: If provided, only search this student's records.
 
         Returns:
             {
@@ -29,17 +32,17 @@ class KnowledgeRetrieverAgent:
                 "best_match": dict or None
             }
         """
-        logger.info(f"KB search: {question[:60]}...")
-        result = search_knowledge_base(question, top_k=settings.top_k_retrieval)
+        logger.info(f"KB search: {question[:60]}... (student_id={student_id})")
+        result = search_knowledge_base(question, top_k=settings.top_k_retrieval, student_id=student_id)
         logger.info(
             f"KB search result: found={result['found']}, "
             f"matches={len(result['similar_questions'])}"
         )
         return result
 
-    def get_cached_answer(self, question: str) -> Optional[str]:
+    def get_cached_answer(self, question: str, student_id: str | None = None) -> Optional[str]:
         """Try to get a cached answer from KB. Used for exact-match lookup."""
-        result = self.search(question)
+        result = self.search(question, student_id=student_id)
         if result["found"] and result["similar_questions"]:
             best = result["similar_questions"][0]
             if best["similarity_score"] >= 0.90:
