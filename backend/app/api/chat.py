@@ -144,7 +144,17 @@ def _detect_mode(student_input: str, prev_state: dict | None, session_history: l
         logger.info(f"[_detect_mode] final quiz_topic='{topic}'")
 
         # Force topic to be the inferred concept if the raw topic contains mostly generic words
-        generic_words = {"简单", "容易", "基础", "适中", "一般", "普通", "困难", "难", "挑战", "高级", "一道", "一个", "一些", "的", "题", "出", "考", "练", "做", "测", "试"}
+        generic_words = {
+            "简单", "容易", "基础", "适中", "一般", "普通", "困难", "难", "挑战", "高级",
+            "一道", "一个", "一些", "的", "题", "出", "考", "练", "做", "测", "试",
+            "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+            "道", "个", "些", "条", "张", "本", "份", "种", "类", "样",
+            "简", "单", "复", "杂", "易", "难", "高", "低", "大", "小",
+            "来", "去", "给", "我", "你", "他", "她", "它", "们", "请",
+            "能", "会", "要", "想", "看", "说", "问", "答", "写", "做",
+            "有", "没", "不", "很", "太", "非常", "比较", "最", "更", "还",
+            "了", "着", "过", "呢", "吗", "吧", "啊", "哦", "嗯", "哈",
+        }
         # Check if topic contains any meaningful concept; if not, override with history
         # Also override if the topic looks like just generic words even if len >= 2
         # We consider a topic meaningful if it contains at least 2 characters that are NOT generic words
