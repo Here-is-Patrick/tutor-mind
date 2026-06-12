@@ -99,10 +99,16 @@ export default function Sidebar({ studentId, sessionId, onStudentIdChange, onSes
     if (!confirm('确定要删除此会话吗？')) return
     try {
       await deleteSession(studentId, sessId)
-      await refreshSessions()
-      // If the deleted session was the current one, let App handle switching
-      if (sessId === sessionId && sessions.length > 1) {
-        const remaining = sessions.filter((s) => s.session_id !== sessId)
+      // Compute remaining sessions before refreshing state
+      const remaining = sessions.filter((s) => s.session_id !== sessId)
+      // Update local state immediately for responsive UI
+      setSessions(remaining)
+      // Refresh summary stats immediately
+      getLearningSummary(studentId)
+        .then(setSummary)
+        .catch(() => setSummary(null))
+      // If the deleted session was the current one, switch to another
+      if (sessId === sessionId) {
         if (remaining.length > 0) {
           onSessionChange(remaining[0].session_id)
         } else {
@@ -120,6 +126,10 @@ export default function Sidebar({ studentId, sessionId, onStudentIdChange, onSes
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr)
+    // Check if the date is valid
+    if (isNaN(d.getTime())) {
+      return dateStr
+    }
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
   }
 

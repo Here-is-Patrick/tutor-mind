@@ -85,9 +85,10 @@ class LongTermMemory:
             if row:
                 return row["session_id"]
             session_id = str(uuid.uuid4())
+            now = datetime.now().isoformat()
             db.execute(
-                "INSERT INTO sessions (session_id, student_id) VALUES (?, ?)",
-                (session_id, student_id),
+                "INSERT INTO sessions (session_id, student_id, created_at) VALUES (?, ?, ?)",
+                (session_id, student_id, now),
             )
             db.commit()
             return session_id
@@ -102,9 +103,10 @@ class LongTermMemory:
                 (student_id,),
             )
             session_id = str(uuid.uuid4())
+            now = datetime.now().isoformat()
             db.execute(
-                "INSERT INTO sessions (session_id, student_id, is_active) VALUES (?, ?, 1)",
-                (session_id, student_id),
+                "INSERT INTO sessions (session_id, student_id, is_active, created_at) VALUES (?, ?, 1, ?)",
+                (session_id, student_id, now),
             )
             db.commit()
             return session_id

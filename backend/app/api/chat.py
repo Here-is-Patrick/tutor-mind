@@ -383,9 +383,13 @@ async def get_student_sessions(student_id: str):
                 "SELECT session_id, created_at, is_active FROM sessions WHERE student_id = ? ORDER BY created_at DESC",
                 (student_id,),
             ).fetchall()
+        sessions = []
+        for r in rows:
+            sess = dict(r)
+            sessions.append(sess)
         return {
             "student_id": student_id,
-            "sessions": [dict(r) for r in rows],
+            "sessions": sessions,
         }
     except Exception as e:
         logger.exception("Get sessions error")
