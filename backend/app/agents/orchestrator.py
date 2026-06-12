@@ -40,10 +40,24 @@ class OrchestratorAgent:
         """Call the DashScope LLM and return the response text."""
         messages = []
 
+        # Global formatting instruction appended to every system prompt
+        formatting_instruction = """
+重要格式要求：
+- 所有数学公式必须使用 LaTeX 格式，用 $ 包裹行内公式，用 $$ 包裹独立公式块。例如：$E=mc^2$ 或 $$\\int_a^b f(x)dx$$
+- 所有代码片段必须用 Markdown 代码块包裹，并标明语言类型。例如：
+```python
+def hello():
+    print("Hello")
+```
+- 禁止使用纯文本的数学表达式（如 f'(x_0) = lim... 这种没有 LaTeX 格式的写法）
+- 禁止使用 ASCII 艺术或特殊字符拼凑的公式
+"""
+
         # Build system prompt
         full_system = system_prompt
         if adaptive_instructions:
             full_system += f"\n\n{adaptive_instructions}"
+        full_system += f"\n\n{formatting_instruction}"
         messages.append({"role": "system", "content": full_system})
 
         # Add history if available

@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import { Send, Brain, User, Loader2, Trash2 } from 'lucide-react'
 import type { ChatMessage } from '../types'
 import { sendMessageStream, getChatHistory, deleteMessage } from '../services/api'
@@ -231,7 +234,9 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
                 }`}
               >
                 {msg.content ? (
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                    {msg.content}
+                  </ReactMarkdown>
                 ) : streaming ? (
                   <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
                 ) : null}
