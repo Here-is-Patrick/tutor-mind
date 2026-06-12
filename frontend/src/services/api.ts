@@ -135,6 +135,14 @@ export async function getStudentSessions(studentId: string): Promise<{
   return request(`/chat/sessions/${studentId}`)
 }
 
+export async function deleteSession(studentId: string, sessionId: string): Promise<{
+  student_id: string
+  session_id: string
+  deleted: boolean
+}> {
+  return request(`/chat/session/${studentId}/${sessionId}`, { method: 'DELETE' })
+}
+
 // ── Students ──────────────────────────────────────────────
 
 export async function getStudent(

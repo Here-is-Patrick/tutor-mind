@@ -10,25 +10,38 @@ import {
   History,
   UserPlus,
   Users,
+  Trash2,
 } from 'lucide-react'
-import { getStudent, getLearningSummary, getStudentSessions, createSession } from '../services/api'
+import { getStudent, getLearningSummary, getStudentSessions, deleteSession, getChatHistory } from '../services/api'
 import type { StudentProfile, LearningSummary } from '../types'
 
 interface SidebarProps {
   studentId: string
+  sessionId: string
   onStudentIdChange: (id: string) => void
   onSessionChange: (sessionId: string) => void
   onNewSession: () => void
 }
 
-export default function Sidebar({ studentId, onStudentIdChange, onSessionChange, onNewSession }: SidebarProps) {
+export default function Sidebar({ studentId, sessionId, onStudentIdChange, onSessionChange, onNewSession }: SidebarProps) {
   const [profile, setProfile] = useState<StudentProfile | null>(null)
   const [summary, setSummary] = useState<LearningSummary | null>(null)
   const [sessions, setSessions] = useState<Array<{ session_id: string; created_at: string; is_active: number }>>([])
+  const [currentSessionMessageCount, setCurrentSessionMessageCount] = useState(0)
   const [inputId, setInputId] = useState('')
   const [showLogin, setShowLogin] = useState(false)
   const [showNewUser, setShowNewUser] = useState(false)
   const [newUserId, setNewUserId] = useState('')
+
+  const refreshSessions = async () => {
+    if (!studentId) return
+    try {
+      const res = await getStudentSessions(studentId)
+      setSessions(res.sessions)
+    } catch {
+      setSessions([])
+    }
+  }
 
   useEffect(() => {
     if (studentId) {
@@ -38,11 +51,19 @@ export default function Sidebar({ studentId, onStudentIdChange, onSessionChange,
       getLearningSummary(studentId)
         .then(setSummary)
         .catch(() => setSummary(null))
-      getStudentSessions(studentId)
-        .then((res) => setSessions(res.sessions))
-        .catch(() => setSessions([]))
+      refreshSessions()
     }
   }, [studentId])
+
+  useEffect(() => {
+    if (!studentId || !sessionId) {
+      setCurrentSessionMessageCount(0)
+      return
+    }
+    getChatHistory(studentId, sessionId)
+      .then((res) => setCurrentSessionMessageCount(res.messages.length))
+      .catch(() => setCurrentSessionMessageCount(0))
+  }, [studentId, sessionId])
 
   const handleLogin = () => {
     if (inputId.trim()) {
@@ -66,11 +87,30 @@ export default function Sidebar({ studentId, onStudentIdChange, onSessionChange,
       onNewSession() // Let App.tsx handle the actual creation and state update
       // Refresh session list after a short delay
       setTimeout(async () => {
-        const sessionsRes = await getStudentSessions(studentId)
-        setSessions(sessionsRes.sessions)
+        await refreshSessions()
       }, 300)
     } catch (err) {
       console.error('Failed to create session:', err)
+    }
+  }
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessId: string) => {
+    e.stopPropagation()
+    if (!confirm('确定要删除此会话吗？')) return
+    try {
+      await deleteSession(studentId, sessId)
+      await refreshSessions()
+      // If the deleted session was the current one, let App handle switching
+      if (sessId === sessionId && sessions.length > 1) {
+        const remaining = sessions.filter((s) => s.session_id !== sessId)
+        if (remaining.length > 0) {
+          onSessionChange(remaining[0].session_id)
+        } else {
+          onNewSession()
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete session:', err)
     }
   }
 
@@ -236,8 +276,8 @@ export default function Sidebar({ studentId, onStudentIdChange, onSessionChange,
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-lg p-3">
               <MessageSquare className="w-4 h-4 text-primary-500 mb-1" />
-              <p className="text-lg font-bold text-gray-700">{summary.total_messages}</p>
-              <p className="text-xs text-gray-400">总消息数</p>
+              <p className="text-lg font-bold text-gray-700">{currentSessionMessageCount}</p>
+              <p className="text-xs text-gray-400">当前会话消息数</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
               <BarChart3 className="w-4 h-4 text-purple-500 mb-1" />
@@ -265,13 +305,20 @@ export default function Sidebar({ studentId, onStudentIdChange, onSessionChange,
             <button
               key={sess.session_id}
               onClick={() => handleSwitchSession(sess.session_id)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors text-left"
+              className="group w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors text-left"
             >
               <History className="w-3.5 h-3.5 text-gray-400" />
               <span className="flex-1 truncate">{formatDate(sess.created_at)}</span>
               {sess.is_active ? (
                 <span className="w-2 h-2 rounded-full bg-green-400" />
               ) : null}
+              <span
+                onClick={(e) => handleDeleteSession(e, sess.session_id)}
+                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 hover:text-red-500 transition-all"
+                title="删除会话"
+              >
+                <Trash2 className="w-3 h-3" />
+              </span>
             </button>
           ))}
           {sessions.length === 0 && (

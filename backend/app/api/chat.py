@@ -398,3 +398,26 @@ async def create_session(student_id: str) -> dict:
     lt = LongTermMemory()
     session_id = lt.create_new_session(student_id)
     return {"student_id": student_id, "session_id": session_id}
+
+
+@router.delete("/session/{student_id}/{session_id}")
+async def delete_session(student_id: str, session_id: str):
+    """Delete a chat session and its messages."""
+    try:
+        from app.models.database import get_db
+        with get_db() as db:
+            # Delete messages first (foreign key constraint if added later)
+            db.execute(
+                "DELETE FROM messages WHERE session_id = ? AND student_id = ?",
+                (session_id, student_id),
+            )
+            # Delete the session
+            db.execute(
+                "DELETE FROM sessions WHERE session_id = ? AND student_id = ?",
+                (session_id, student_id),
+            )
+            db.commit()
+        return {"student_id": student_id, "session_id": session_id, "deleted": True}
+    except Exception as e:
+        logger.exception("Delete session error")
+        raise HTTPException(status_code=500, detail=str(e))
