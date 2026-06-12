@@ -130,6 +130,7 @@ export async function getStudentSessions(studentId: string): Promise<{
     session_id: string
     created_at: string
     is_active: number
+    title: string | null
   }>
 }> {
   return request(`/chat/sessions/${studentId}`)

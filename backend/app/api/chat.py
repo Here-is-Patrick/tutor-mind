@@ -380,7 +380,7 @@ async def get_student_sessions(student_id: str):
         from app.models.database import get_db
         with get_db() as db:
             rows = db.execute(
-                "SELECT session_id, created_at, is_active FROM sessions WHERE student_id = ? ORDER BY created_at DESC",
+                "SELECT session_id, created_at, is_active, title FROM sessions WHERE student_id = ? ORDER BY created_at DESC",
                 (student_id,),
             ).fetchall()
         sessions = []

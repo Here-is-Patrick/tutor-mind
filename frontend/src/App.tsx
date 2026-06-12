@@ -3,8 +3,12 @@ import Sidebar from './components/Sidebar'
 import ChatPanel from './components/ChatPanel'
 import { createSession, getStudentSessions } from './services/api'
 
+const LAST_STUDENT_KEY = 'tutormind_last_student'
+
 export default function App() {
-  const [studentId, setStudentId] = useState('student_001')
+  const [studentId, setStudentId] = useState(() => {
+    return localStorage.getItem(LAST_STUDENT_KEY) || 'student_001'
+  })
   const [sessionId, setSessionId] = useState('')
   const [sessionKey, setSessionKey] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
@@ -60,6 +64,7 @@ export default function App() {
   const handleStudentChange = useCallback((newStudentId: string) => {
     if (newStudentId === studentId) return
     setStudentId(newStudentId)
+    localStorage.setItem(LAST_STUDENT_KEY, newStudentId)
     // session will be created by useEffect above
   }, [studentId])
 

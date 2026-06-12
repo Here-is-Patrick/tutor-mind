@@ -29,6 +29,13 @@ class LongTermMemory:
                    VALUES (?, ?, ?, ?, ?)""",
                 (student_id, session_id, role, content, agent_name),
             )
+            # Update session title if this is the first student message and title is empty
+            if role == 'student':
+                db.execute(
+                    """UPDATE sessions SET title = ?
+                       WHERE session_id = ? AND (title IS NULL OR title = '')""",
+                    (content, session_id),
+                )
             db.commit()
 
     def save_qa_record(

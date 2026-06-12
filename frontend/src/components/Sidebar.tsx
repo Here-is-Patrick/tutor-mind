@@ -26,7 +26,7 @@ interface SidebarProps {
 export default function Sidebar({ studentId, sessionId, onStudentIdChange, onSessionChange, onNewSession }: SidebarProps) {
   const [profile, setProfile] = useState<StudentProfile | null>(null)
   const [summary, setSummary] = useState<LearningSummary | null>(null)
-  const [sessions, setSessions] = useState<Array<{ session_id: string; created_at: string; is_active: number }>>([])
+  const [sessions, setSessions] = useState<Array<{ session_id: string; created_at: string; is_active: number; title: string | null }>>([])
   const [currentSessionMessageCount, setCurrentSessionMessageCount] = useState(0)
   const [inputId, setInputId] = useState('')
   const [showLogin, setShowLogin] = useState(false)
@@ -317,14 +317,16 @@ export default function Sidebar({ studentId, sessionId, onStudentIdChange, onSes
               onClick={() => handleSwitchSession(sess.session_id)}
               className="group w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors text-left"
             >
-              <History className="w-3.5 h-3.5 text-gray-400" />
-              <span className="flex-1 truncate">{formatDate(sess.created_at)}</span>
+              <History className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+              <span className="flex-1 truncate" title={sess.title || formatDate(sess.created_at)}>
+                {sess.title || formatDate(sess.created_at)}
+              </span>
               {sess.is_active ? (
-                <span className="w-2 h-2 rounded-full bg-green-400" />
+                <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
               ) : null}
               <span
                 onClick={(e) => handleDeleteSession(e, sess.session_id)}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 hover:text-red-500 transition-all"
+                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 hover:text-red-500 transition-all flex-shrink-0"
                 title="删除会话"
               >
                 <Trash2 className="w-3 h-3" />

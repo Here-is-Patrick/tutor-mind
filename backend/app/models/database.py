@@ -72,6 +72,7 @@ def init_db():
             student_id   TEXT NOT NULL,
             created_at   TEXT,
             is_active    INTEGER DEFAULT 1,
+            title        TEXT,
             FOREIGN KEY (student_id) REFERENCES students(student_id)
         )
     """)
