@@ -131,7 +131,10 @@ def _detect_mode(student_input: str, prev_state: dict | None, session_history: l
 
         # If topic is empty or too generic after stripping keywords, try to infer from session history
         if not topic or len(topic) < 2:
-            topic = _infer_topic_from_history(session_history)
+            inferred = _infer_topic_from_history(session_history)
+            logger.info(f"[_detect_mode] inferred topic from history: '{inferred}'")
+            if inferred:
+                topic = inferred
         if not topic:
             topic = "数学"  # default
 
@@ -166,8 +169,32 @@ def _infer_topic_from_history(session_history: list[dict] | None) -> str:
         return ""
     # Use the most recent assistant message as topic hint
     latest = assistant_contents[0]
-    # Try to extract a clear topic from the assistant's explanation.
-    # Heuristic: look for the first sentence that contains a concept name.
+
+    # Try to find a clear concept/topic mention in the assistant message.
+    # Look for patterns like "XX定理", "XX公式", "XX函数", "XX方程" etc.
+    import re
+    # Common academic concept patterns — match from word boundary (non-Chinese or start)
+    concept_patterns = [
+        r"(?:^|[^一-龥])([一-龥]{1,8}定理)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}公式)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}法则)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}原理)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}函数)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}方程)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}不等式)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}数列)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}几何)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}向量)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}导数)",
+        r"(?:^|[^一-龥])([一-龥]{1,8}积分)",
+    ]
+    for pattern in concept_patterns:
+        matches = re.findall(pattern, latest)
+        if matches:
+            # Return the last matched concept
+            return matches[-1]
+
+    # Fallback: look for the first sentence that contains a concept name.
     sentences = latest.split("。")
     for sent in sentences:
         sent = sent.strip()
