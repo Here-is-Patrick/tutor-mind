@@ -187,27 +187,15 @@ def _detect_mode(student_input: str, prev_state: dict | None, session_history: l
 
 
 def _infer_topic_from_history(session_history: list[dict] | None) -> str:
-    """Infer the quiz topic from the last few assistant messages in the session."""
+    """Infer the quiz topic from the session history.
+
+    Priority:
+    1. Most recent student message that contains a concept pattern (e.g. 韦达定理)
+    2. Most recent assistant message that contains a concept pattern
+    """
     if not session_history:
         return ""
-    # Look at the most recent assistant messages (up to last 3) to find a topic
-    assistant_contents = []
-    for msg in reversed(session_history):
-        if msg.get("role") == "assistant":
-            content = msg.get("content", "")
-            if content:
-                assistant_contents.append(content)
-            if len(assistant_contents) >= 3:
-                break
-    if not assistant_contents:
-        return ""
-    # Use the most recent assistant message as topic hint
-    latest = assistant_contents[0]
-
-    # Try to find a clear concept/topic mention in the assistant message.
-    # Look for patterns like "XX定理", "XX公式", "XX函数", "XX方程" etc.
     import re
-    # Common academic concept patterns — match from word boundary (non-Chinese or start)
     concept_patterns = [
         r"(?:^|[^一-龥])([一-龥]{1,8}定理)",
         r"(?:^|[^一-龥])([一-龥]{1,8}公式)",
@@ -222,26 +210,32 @@ def _infer_topic_from_history(session_history: list[dict] | None) -> str:
         r"(?:^|[^一-龥])([一-龥]{1,8}导数)",
         r"(?:^|[^一-龥])([一-龥]{1,8}积分)",
     ]
-    for pattern in concept_patterns:
-        matches = re.findall(pattern, latest)
-        if matches:
-            # Return the last matched concept
-            return matches[-1]
 
-    # Fallback: look for the first sentence that contains a concept name.
-    sentences = latest.split("。")
-    for sent in sentences:
-        sent = sent.strip()
-        if len(sent) > 5:
-            # Return the first meaningful sentence (up to 40 chars) as topic
-            if len(sent) > 40:
-                sent = sent[:40]
-            return sent
-    # Fallback: first line
-    first_line = latest.split("\n")[0].strip()
-    if len(first_line) > 50:
-        first_line = first_line[:50]
-    return first_line
+    def _extract_concepts(text: str) -> list[str]:
+        """Extract all concept matches from text."""
+        concepts = []
+        for pattern in concept_patterns:
+            matches = re.findall(pattern, text)
+            concepts.extend(matches)
+        return concepts
+
+    # Priority 1: look at student messages (most recent first)
+    for msg in reversed(session_history):
+        if msg.get("role") == "student":
+            content = msg.get("content", "")
+            concepts = _extract_concepts(content)
+            if concepts:
+                return concepts[-1]
+
+    # Priority 2: look at assistant messages (most recent first)
+    for msg in reversed(session_history):
+        if msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            concepts = _extract_concepts(content)
+            if concepts:
+                return concepts[-1]
+
+    return ""
 
 
 def _extract_topic_from_all_history(session_history: list[dict] | None) -> str:
@@ -264,19 +258,15 @@ def _extract_topic_from_all_history(session_history: list[dict] | None) -> str:
         r"(?:^|[^一-龥])([一-龥]{1,8}导数)",
         r"(?:^|[^一-龥])([一-龥]{1,8}积分)",
     ]
-    # Count concept mentions across all messages
-    concept_counts: dict[str, int] = {}
-    for msg in session_history:
+    # Priority: student messages first, then assistant messages
+    for msg in reversed(session_history):
         content = msg.get("content", "")
         if not content:
             continue
         for pattern in concept_patterns:
             matches = re.findall(pattern, content)
-            for m in matches:
-                concept_counts[m] = concept_counts.get(m, 0) + 1
-    if concept_counts:
-        # Return the most frequently mentioned concept
-        return max(concept_counts.items(), key=lambda x: x[1])[0]
+            if matches:
+                return matches[-1]
     return ""
 
 
