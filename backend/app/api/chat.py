@@ -476,7 +476,6 @@ async def chat(req: ChatRequest) -> ChatResponse:
         # After graph execution, rebuild short-term memory for this session from DB
         # so that each session only sees its own history.
         from app.memory.short_term import ShortTermMemory
-        from app.memory.long_term import LongTermMemory
         stm = ShortTermMemory()
         ltm = LongTermMemory()
         db_msgs = ltm.get_session_messages(req.session_id, limit=20)
@@ -726,7 +725,6 @@ async def chat_stream(req: ChatRequest):
             # so that the next turn in this session sees the full conversation context.
             # This also ensures each session only sees its own history.
             from app.memory.short_term import ShortTermMemory
-            from app.memory.long_term import LongTermMemory
             stm = ShortTermMemory()
             ltm = LongTermMemory()
             db_msgs = ltm.get_session_messages(req.session_id, limit=20)
@@ -919,7 +917,6 @@ async def delete_session(student_id: str, session_id: str):
     try:
         from app.models.database import get_db
         from app.memory.short_term import ShortTermMemory
-        from app.memory.long_term import LongTermMemory
 
         with get_db() as db:
             # Delete messages first (foreign key constraint if added later)
@@ -949,7 +946,6 @@ async def delete_message(student_id: str, session_id: str, message_id: str):
     try:
         from app.models.database import get_db
         from app.memory.short_term import ShortTermMemory
-        from app.memory.long_term import LongTermMemory
 
         with get_db() as db:
             # Find the message by session_id + created_at (used as message_id in frontend)
