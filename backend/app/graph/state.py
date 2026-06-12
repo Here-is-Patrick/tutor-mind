@@ -28,13 +28,6 @@ class TutorState(TypedDict):
         is_weak_foundation: Whether student has weak foundation
         messages:         Annotated list of conversation messages
         error:            Error message if any
-        mode:             Interaction mode (chat, quiz_question, quiz_answer, etc.)
-        quiz_topic:       Topic for quiz generation
-        quiz_difficulty:  Difficulty level for quiz
-        quiz_question:    Current quiz question text
-        quiz_reference:   Reference answer for the quiz
-        quiz_student_answer: Student's answer to the quiz
-        quiz_judge_result: Result of judging the quiz answer
     """
 
     student_id: str
@@ -52,10 +45,3 @@ class TutorState(TypedDict):
     is_weak_foundation: bool
     messages: Annotated[list, add_messages]
     error: Optional[str]
-    mode: str
-    quiz_topic: str
-    quiz_difficulty: str
-    quiz_question: str
-    quiz_reference: str
-    quiz_student_answer: str
-    quiz_judge_result: Optional[dict]

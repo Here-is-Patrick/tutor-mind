@@ -123,7 +123,7 @@ def generate_answer(state: TutorState) -> TutorState:
         search_results=state.get("search_result", []),
         session_id=state["session_id"],
     )
-    state["final_reply"] = result["reply"] + "\n\n💡 要我出一道题来检验一下你的理解吗？你可以回复「出题」或「不用了」。"
+    state["final_reply"] = result["reply"]
     state["stage"] = "generate_answer"
     return state
 
