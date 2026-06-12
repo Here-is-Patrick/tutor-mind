@@ -70,8 +70,9 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sessions (
             session_id   TEXT PRIMARY KEY,
             student_id   TEXT NOT NULL,
-            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at   TEXT,
             is_active    INTEGER DEFAULT 1,
+            title        TEXT,
             FOREIGN KEY (student_id) REFERENCES students(student_id)
         )
     """)

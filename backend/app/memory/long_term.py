@@ -29,6 +29,13 @@ class LongTermMemory:
                    VALUES (?, ?, ?, ?, ?)""",
                 (student_id, session_id, role, content, agent_name),
             )
+            # Update session title if this is the first student message and title is empty
+            if role == 'student':
+                db.execute(
+                    """UPDATE sessions SET title = ?
+                       WHERE session_id = ? AND (title IS NULL OR title = '')""",
+                    (content, session_id),
+                )
             db.commit()
 
     def save_qa_record(
@@ -85,9 +92,10 @@ class LongTermMemory:
             if row:
                 return row["session_id"]
             session_id = str(uuid.uuid4())
+            now = datetime.now().isoformat()
             db.execute(
-                "INSERT INTO sessions (session_id, student_id) VALUES (?, ?)",
-                (session_id, student_id),
+                "INSERT INTO sessions (session_id, student_id, created_at) VALUES (?, ?, ?)",
+                (session_id, student_id, now),
             )
             db.commit()
             return session_id
@@ -102,9 +110,10 @@ class LongTermMemory:
                 (student_id,),
             )
             session_id = str(uuid.uuid4())
+            now = datetime.now().isoformat()
             db.execute(
-                "INSERT INTO sessions (session_id, student_id, is_active) VALUES (?, ?, 1)",
-                (session_id, student_id),
+                "INSERT INTO sessions (session_id, student_id, is_active, created_at) VALUES (?, ?, 1, ?)",
+                (session_id, student_id, now),
             )
             db.commit()
             return session_id

@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Send, Brain, User, Loader2 } from 'lucide-react'
+import { Send, Brain, User, Loader2, Trash2 } from 'lucide-react'
 import type { ChatMessage } from '../types'
-import { sendMessageStream, getChatHistory } from '../services/api'
+import { sendMessageStream, getChatHistory, deleteMessage } from '../services/api'
 
 interface ChatPanelProps {
   studentId: string
@@ -14,6 +14,12 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [streaming, setStreaming] = useState(false)
+  const [quizMode, setQuizMode] = useState(false)
+  const [quizState, setQuizState] = useState<{
+    question: string
+    reference: string
+    topic: string
+  } | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const abortRef = useRef<(() => void) | null>(null)
 
@@ -22,6 +28,8 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
     if (!studentId || !sessionId) return
 
     setMessages([])
+    setQuizMode(false)
+    setQuizState(null)
     setLoading(true)
 
     getChatHistory(studentId, sessionId)
@@ -98,6 +106,17 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
                 : m
             )
           )
+          // Track quiz mode from backend response
+          if (meta.mode === 'quiz_question' || meta.agent_name === 'generate_quiz') {
+            setQuizMode(true)
+          }
+          if (meta.mode === 'quiz_answer' || meta.agent_name === 'judge_answer') {
+            setQuizMode(true)
+          }
+          if (meta.mode === 'chat' || meta.agent_name === 'generate_answer') {
+            setQuizMode(false)
+            setQuizState(null)
+          }
         },
         onContent: (chunk) => {
           currentContent += chunk
@@ -109,6 +128,14 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
         },
         onDone: () => {
           setStreaming(false)
+          // After response completes, try to extract quiz state from the message
+          const lastMsg = currentContent
+          if (lastMsg.includes('📚 **练习题**')) {
+            setQuizMode(true)
+          }
+          if (lastMsg.includes('回到正常问答') || lastMsg.includes('还想继续练习吗')) {
+            setQuizMode(false)
+          }
         },
         onError: (error) => {
           setStreaming(false)
@@ -139,8 +166,23 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
       info_collector: '信息收集',
       socratic_tutor: '苏格拉底导师',
       search_agent: '知识搜索',
+      generate_quiz: '出题',
+      judge_answer: '评判',
+      quiz_socratic: '苏格拉底引导',
+      quiz_direct_answer: '直接解答',
     }
     return labels[agentName || ''] || agentName || 'TutorMind'
+  }
+
+  const handleDeleteMessage = async (msg: ChatMessage) => {
+    if (!msg.timestamp) return
+    if (!confirm('确定要删除这条消息吗？')) return
+    try {
+      await deleteMessage(studentId, sessionId, msg.timestamp)
+      setMessages((prev) => prev.filter((m) => m.id !== msg.id))
+    } catch (err) {
+      console.error('Failed to delete message:', err)
+    }
   }
 
   return (
@@ -181,7 +223,7 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex gap-3 ${msg.role === 'student' ? 'flex-row-reverse' : ''}`}
+            className={`group flex gap-3 ${msg.role === 'student' ? 'flex-row-reverse' : ''}`}
           >
             {/* Avatar */}
             <div
@@ -200,7 +242,7 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
 
             {/* Bubble */}
             <div
-              className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+              className={`relative max-w-[75%] rounded-2xl px-4 py-3 ${
                 msg.role === 'student'
                   ? 'bg-primary-600 text-white rounded-tr-sm'
                   : 'bg-gray-100 text-gray-800 rounded-tl-sm'
@@ -225,6 +267,14 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
                   <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
                 ) : null}
               </div>
+              {/* Delete button */}
+              <button
+                onClick={() => handleDeleteMessage(msg)}
+                className={`absolute -top-2 ${msg.role === 'student' ? '-left-2' : '-right-2'} opacity-0 group-hover:opacity-100 p-1 rounded-full bg-white shadow-sm border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 transition-all`}
+                title="删除消息"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
             </div>
           </div>
         ))}
@@ -234,12 +284,40 @@ export default function ChatPanel({ studentId, sessionId }: ChatPanelProps) {
 
       {/* Input */}
       <div className="border-t border-gray-100 px-4 py-3">
+        {quizMode && (
+          <div className="flex gap-2 mb-2 flex-wrap">
+            <button
+              onClick={() => setInput('引导')}
+              className="px-3 py-1 text-xs bg-purple-100 text-purple-700 rounded-full hover:bg-purple-200 transition-colors"
+            >
+              引导
+            </button>
+            <button
+              onClick={() => setInput('答案')}
+              className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors"
+            >
+              答案
+            </button>
+            <button
+              onClick={() => setInput('更难')}
+              className="px-3 py-1 text-xs bg-orange-100 text-orange-700 rounded-full hover:bg-orange-200 transition-colors"
+            >
+              更难
+            </button>
+            <button
+              onClick={() => setInput('结束')}
+              className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors"
+            >
+              结束
+            </button>
+          </div>
+        )}
         <div className="flex gap-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="输入你的问题... (Shift+Enter 换行)"
+            placeholder={quizMode ? '回复你的答案，或选择上方快捷按钮...' : '输入你的问题... (Shift+Enter 换行)'}
             rows={1}
             className="flex-1 resize-none rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent"
             disabled={streaming}

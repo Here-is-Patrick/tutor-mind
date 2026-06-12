@@ -20,9 +20,12 @@ def _get_retriever() -> KnowledgeRetriever:
     return _retriever
 
 
-def search_knowledge_base(question: str, top_k: int | None = None) -> dict:
+def search_knowledge_base(question: str, top_k: int | None = None, student_id: str | None = None) -> dict:
     """
     Search the knowledge base for similar historical Q&A.
+
+    Args:
+        student_id: If provided, only return results from this student.
 
     Returns:
         {
@@ -32,7 +35,7 @@ def search_knowledge_base(question: str, top_k: int | None = None) -> dict:
         }
     """
     retriever = _get_retriever()
-    return retriever.retrieve(question, top_k)
+    return retriever.retrieve(question, top_k, student_id=student_id)
 
 
 def save_to_knowledge_base(

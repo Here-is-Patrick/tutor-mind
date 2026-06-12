@@ -33,7 +33,7 @@ export async function sendMessage(data: ChatRequest): Promise<ChatResponse> {
 // ── Chat (Streaming SSE) ──────────────────────────────────
 
 export interface StreamCallbacks {
-  onMeta?: (meta: { agent_name: string; stage: string; is_guided: boolean }) => void
+  onMeta?: (meta: { agent_name: string; stage: string; is_guided: boolean; mode?: string }) => void
   onContent?: (chunk: string) => void
   onDone?: () => void
   onError?: (error: string) => void
@@ -130,9 +130,27 @@ export async function getStudentSessions(studentId: string): Promise<{
     session_id: string
     created_at: string
     is_active: number
+    title: string | null
   }>
 }> {
   return request(`/chat/sessions/${studentId}`)
+}
+
+export async function deleteSession(studentId: string, sessionId: string): Promise<{
+  student_id: string
+  session_id: string
+  deleted: boolean
+}> {
+  return request(`/chat/session/${studentId}/${sessionId}`, { method: 'DELETE' })
+}
+
+export async function deleteMessage(studentId: string, sessionId: string, messageId: string): Promise<{
+  student_id: string
+  session_id: string
+  message_id: string
+  deleted: boolean
+}> {
+  return request(`/chat/message/${studentId}/${sessionId}/${encodeURIComponent(messageId)}`, { method: 'DELETE' })
 }
 
 // ── Students ──────────────────────────────────────────────
