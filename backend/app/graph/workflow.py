@@ -3,7 +3,7 @@ LangGraph StateGraph workflow — the master orchestrator for TutorMind.
 
 Pipeline:
   1. check_student_info  →  if incomplete → collect_info → END
-  2. search_knowledge_base → if hit → socratic_teach → END
+  2. search_knowledge_base → if hit → socratic_teach → END (or loop back)
   3. search_knowledge_base → if miss → tavily_search → generate_answer → END
 """
 
@@ -95,6 +95,26 @@ def socratic_teach(state: TutorState) -> TutorState:
     )
     state["final_reply"] = result["reply"]
     state["stage"] = "socratic_teach"
+    # Mark that we are now in a Socratic dialogue loop
+    state["in_socratic_loop"] = True
+    return state
+
+
+def socratic_continue(state: TutorState) -> TutorState:
+    """
+    Node 3a-continue: Continue Socratic dialogue based on student's follow-up answer.
+    This node is used when the student is still in the Socratic loop (answering
+    the previous guiding question rather than asking a new question).
+    """
+    logger.info(f"[{state['student_id']}] Stage: socratic_continue")
+    result = socratic_tutor.teach(
+        student_id=state["student_id"],
+        student_input=state["student_input"],
+        context=state["socratic_context"],
+        session_id=state["session_id"],
+    )
+    state["final_reply"] = result["reply"]
+    state["stage"] = "socratic_teach"
     return state
 
 
@@ -125,6 +145,8 @@ def generate_answer(state: TutorState) -> TutorState:
     )
     state["final_reply"] = result["reply"]
     state["stage"] = "generate_answer"
+    # Reset socratic loop flag since we are giving a direct answer
+    state["in_socratic_loop"] = False
     return state
 
 
@@ -155,6 +177,37 @@ def route_after_kb_search(state: TutorState) -> Literal["socratic_teach", "tavil
     return "tavily_search"
 
 
+def route_after_socratic(state: TutorState) -> Literal["__end__", "socratic_continue"]:
+    """After Socratic teaching: check if student wants to continue the dialogue.
+
+    We stay in the Socratic loop if:
+    1. The previous turn was in socratic_loop (we just asked a guiding question)
+    2. The student's current input does NOT look like a brand new question
+       (e.g. doesn't contain question marks, doesn't start with '什么是', etc.)
+    """
+    student_input = state.get("student_input", "").strip()
+
+    # If we are already in a Socratic loop, check if student is answering
+    # the previous guiding question or asking something new
+    if state.get("in_socratic_loop", False):
+        # Heuristics to detect if student is asking a NEW question vs answering
+        new_question_signals = [
+            "?", "？", "什么是", "为什么", "怎么", "如何", "请问",
+            "解释一下", "给我讲讲", "介绍一下",
+        ]
+        looks_like_new_question = any(sig in student_input for sig in new_question_signals)
+
+        # If it doesn't look like a new question, assume student is answering
+        # the previous Socratic question -> continue Socratic loop
+        if not looks_like_new_question:
+            logger.info(f"[{state['student_id']}] Continuing Socratic loop")
+            return "socratic_continue"
+
+    # Otherwise, end this turn normally
+    logger.info(f"[{state['student_id']}] Ending Socratic loop")
+    return "__end__"
+
+
 # ── Build workflow ───────────────────────────────────────────────────
 
 def build_workflow() -> StateGraph:
@@ -166,6 +219,7 @@ def build_workflow() -> StateGraph:
     workflow.add_node("collect_info", collect_info)
     workflow.add_node("search_knowledge_base", search_knowledge_base)
     workflow.add_node("socratic_teach", socratic_teach)
+    workflow.add_node("socratic_continue", socratic_continue)
     workflow.add_node("tavily_search", tavily_search)
     workflow.add_node("generate_answer", generate_answer)
 
@@ -189,8 +243,21 @@ def build_workflow() -> StateGraph:
         {"socratic_teach": "socratic_teach", "tavily_search": "tavily_search"},
     )
 
+    # NEW: After socratic_teach, decide whether to continue the loop or end
+    workflow.add_conditional_edges(
+        "socratic_teach",
+        route_after_socratic,
+        {"__end__": END, "socratic_continue": "socratic_continue"},
+    )
+
+    # After socratic_continue, loop back to the same decision point
+    workflow.add_conditional_edges(
+        "socratic_continue",
+        route_after_socratic,
+        {"__end__": END, "socratic_continue": "socratic_continue"},
+    )
+
     # Direct edges
-    workflow.add_edge("socratic_teach", END)
     workflow.add_edge("tavily_search", "generate_answer")
     workflow.add_edge("generate_answer", END)
 
