@@ -36,6 +36,7 @@ class QuizAgent:
 2. 题目要有明确的答案
 3. 只输出题目本身，不要输出答案
 4. 题目适合{education}水平的学生
+5. **题目必须严格围绕「{topic}」这个知识点，不能偏离主题出其他不相关的题目**
 
 搜索结果：
 {search_results}
@@ -115,13 +116,17 @@ class QuizAgent:
         """Generate a quiz question via Tavily search."""
         logger.info(f"[QuizAgent] Generating quiz for {student_id}: topic={topic}, difficulty={difficulty}")
 
+        # Clean up topic: remove markdown, emojis, and generic prefixes
+        clean_topic = self._clean_topic(topic)
+        logger.info(f"[QuizAgent] Cleaned topic: '{clean_topic}'")
+
         # Search for real questions/knowledge about the topic
-        search_query = f"{topic} {difficulty}难度 练习题 题目"
+        search_query = f"{clean_topic} {difficulty}难度 练习题 题目"
         search_results = tavily_search(search_query, max_results=5)
 
         if not search_results:
             # Fallback: try broader search
-            search_results = tavily_search(topic, max_results=5)
+            search_results = tavily_search(clean_topic, max_results=5)
 
         from app.tools.tavily_tool import format_search_results
         formatted_results = format_search_results(search_results)
@@ -130,7 +135,7 @@ class QuizAgent:
         adaptive = get_adaptive_instructions(student_id)
 
         prompt = self.GENERATE_QUESTION_PROMPT.format(
-            topic=topic,
+            topic=clean_topic,
             difficulty=difficulty,
             education=education,
             search_results=formatted_results,
@@ -153,11 +158,39 @@ class QuizAgent:
             logger.warning(f"[QuizAgent] Failed to parse quiz JSON: {e}, raw={reply[:200]}")
             # Fallback: return a simple message
             return {
-                "question": f"请尝试解答以下问题：{topic}的相关知识你了解多少？",
+                "question": f"请尝试解答以下问题：{clean_topic}的相关知识你了解多少？",
                 "reference_answer": "需要具体搜索",
                 "hint": "回想一下刚才学到的内容",
                 "search_results": search_results,
             }
+
+    def _clean_topic(self, topic: str) -> str:
+        """Clean topic string by removing markdown, emojis, and generic instructional text."""
+        import re
+        # Remove markdown bold/italic markers
+        t = topic.replace("**", "").replace("*", "").replace("__", "").replace("_", "")
+        # Remove LaTeX math markers
+        t = t.replace("$", "")
+        # Remove common emoji and instructional prefixes
+        prefixes_to_remove = [
+            "要我出一道题来检验一下你的理解吗",
+            "你可以回复",
+            "回复",
+            "你可以",
+            "需要我带你一起做",
+            "或者你想先问问",
+            "想挑战更难的题目吗",
+            "想继续练习吗",
+            "请直接回复你的答案",
+            "我会帮你评判",
+        ]
+        for prefix in prefixes_to_remove:
+            t = t.replace(prefix, "")
+        # Remove emoji characters (common ranges)
+        t = re.sub(r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U000024C2-\U0001F251]", "", t)
+        # Remove extra whitespace
+        t = re.sub(r"\s+", " ", t).strip(" ，。！？\n")
+        return t
 
     def judge_answer(
         self,

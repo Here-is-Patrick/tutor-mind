@@ -39,7 +39,7 @@ _DIFFICULTY_KEYWORDS = {
 }
 
 
-def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict]:
+def _detect_mode(student_input: str, prev_state: dict | None, session_history: list[dict] | None = None) -> tuple[str, dict]:
     """
     Detect interaction mode from student input.
     Returns (mode, extra_state).
@@ -128,6 +128,10 @@ def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict
         for ch in remove_chars:
             topic = topic.replace(ch, "")
         topic = topic.strip(" ，。！？")
+
+        # If topic is empty or too generic after stripping keywords, try to infer from session history
+        if not topic or len(topic) < 2:
+            topic = _infer_topic_from_history(session_history)
         if not topic:
             topic = "数学"  # default
 
@@ -145,6 +149,40 @@ def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict
     return "chat", {}
 
 
+def _infer_topic_from_history(session_history: list[dict] | None) -> str:
+    """Infer the quiz topic from the last few assistant messages in the session."""
+    if not session_history:
+        return ""
+    # Look at the most recent assistant messages (up to last 3) to find a topic
+    assistant_contents = []
+    for msg in reversed(session_history):
+        if msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            if content:
+                assistant_contents.append(content)
+            if len(assistant_contents) >= 3:
+                break
+    if not assistant_contents:
+        return ""
+    # Use the most recent assistant message as topic hint
+    latest = assistant_contents[0]
+    # Try to extract a clear topic from the assistant's explanation.
+    # Heuristic: look for the first sentence that contains a concept name.
+    sentences = latest.split("。")
+    for sent in sentences:
+        sent = sent.strip()
+        if len(sent) > 5:
+            # Return the first meaningful sentence (up to 40 chars) as topic
+            if len(sent) > 40:
+                sent = sent[:40]
+            return sent
+    # Fallback: first line
+    first_line = latest.split("\n")[0].strip()
+    if len(first_line) > 50:
+        first_line = first_line[:50]
+    return first_line
+
+
 # ── Non-streaming chat ───────────────────────────────────────────────
 
 @router.post(
@@ -155,8 +193,16 @@ def _detect_mode(student_input: str, prev_state: dict | None) -> tuple[str, dict
 async def chat(req: ChatRequest) -> ChatResponse:
     """Send a message to the tutor and get a response."""
     try:
+        # Load session history for topic inference when student says "出题" without explicit topic
+        session_history = []
+        try:
+            lt = LongTermMemory()
+            session_history = lt.get_session_messages(req.session_id, limit=10)
+        except Exception:
+            pass
+
         # Detect mode
-        mode, extra = _detect_mode(req.message, None)
+        mode, extra = _detect_mode(req.message, None, session_history)
 
         # Direct quiz modes bypass the graph
         if mode == "quiz_question":
@@ -369,8 +415,16 @@ async def chat_stream(req: ChatRequest):
     """Send a message and receive a streaming response via SSE."""
     async def event_generator():
         try:
+            # Load session history for topic inference when student says "出题" without explicit topic
+            session_history = []
+            try:
+                lt = LongTermMemory()
+                session_history = lt.get_session_messages(req.session_id, limit=10)
+            except Exception:
+                pass
+
             # Detect mode
-            mode, extra = _detect_mode(req.message, None)
+            mode, extra = _detect_mode(req.message, None, session_history)
             logger.info(f"[chat_stream] detected mode={mode} for message='{req.message}'")
 
             initial_state: TutorState = {
