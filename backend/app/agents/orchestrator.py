@@ -88,8 +88,18 @@ class OrchestratorAgent:
         )
 
     def get_conversation_context(self, session_id: str, limit: int = 10) -> str:
-        """Get recent conversation context for a session."""
-        return short_term_memory.get_formatted(session_id, limit)
+        """Get recent conversation context for a session.
+        Falls back to long-term DB if short-term memory is empty (e.g. after server restart)."""
+        context = short_term_memory.get_formatted(session_id, limit)
+        if context:
+            return context
+        # Fallback: load from DB so history survives server restarts
+        db_history = long_term_memory.get_session_messages(session_id, limit=limit)
+        lines = []
+        for msg in db_history:
+            role_label = "学生" if msg["role"] == "student" else "老师"
+            lines.append(f"{role_label}: {msg['content']}")
+        return "\n".join(lines)
 
 
 # ── Shared singleton ──────────────────────────────────────────────────

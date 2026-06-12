@@ -21,12 +21,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+# Initialize DB on first request
+init_db()
+
 # Initialize the graph once
 tutor_graph = create_tutor_graph()
 orchestrator = get_orchestrator()
-
-# Initialize DB on first request
-init_db()
 
 
 # ── Mode detection ───────────────────────────────────────────────────
@@ -166,6 +166,17 @@ async def chat(req: ChatRequest) -> ChatResponse:
             agent_name=final_state["stage"],
         )
 
+        # After graph execution, rebuild short-term memory for this session from DB
+        # so that each session only sees its own history.
+        from app.memory.short_term import ShortTermMemory
+        from app.memory.long_term import LongTermMemory
+        stm = ShortTermMemory()
+        ltm = LongTermMemory()
+        db_msgs = ltm.get_session_messages(req.session_id, limit=20)
+        stm.clear(req.session_id)
+        for msg in db_msgs:
+            stm.add(req.session_id, msg["role"], msg["content"])
+
         return ChatResponse(
             student_id=req.student_id,
             session_id=req.session_id,
@@ -225,6 +236,19 @@ async def chat_stream(req: ChatRequest):
             config = {"configurable": {"thread_id": req.session_id}}
             result = tutor_graph.invoke(initial_state, config=config)
             final_state = cast(TutorState, result)
+
+            # After graph execution, load current session history from DB into short-term memory
+            # so that the next turn in this session sees the full conversation context.
+            # This also ensures each session only sees its own history.
+            from app.memory.short_term import ShortTermMemory
+            from app.memory.long_term import LongTermMemory
+            stm = ShortTermMemory()
+            ltm = LongTermMemory()
+            db_msgs = ltm.get_session_messages(req.session_id, limit=20)
+            # Rebuild short-term buffer for this session from DB
+            stm.clear(req.session_id)
+            for msg in db_msgs:
+                stm.add(req.session_id, msg["role"], msg["content"])
 
             if final_state.get("error"):
                 yield f"data: {json.dumps({'type': 'error', 'content': final_state['error']})}\n\n"
@@ -409,6 +433,9 @@ async def delete_session(student_id: str, session_id: str):
     """Delete a chat session and its messages."""
     try:
         from app.models.database import get_db
+        from app.memory.short_term import ShortTermMemory
+        from app.memory.long_term import LongTermMemory
+
         with get_db() as db:
             # Delete messages first (foreign key constraint if added later)
             db.execute(
@@ -421,6 +448,10 @@ async def delete_session(student_id: str, session_id: str):
                 (session_id, student_id),
             )
             db.commit()
+
+        # Clear in-memory short-term buffer for this session
+        ShortTermMemory().clear(session_id)
+
         return {"student_id": student_id, "session_id": session_id, "deleted": True}
     except Exception as e:
         logger.exception("Delete session error")
