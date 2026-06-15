@@ -28,52 +28,56 @@ TutorMind 是一个基于 **LangGraph 多智能体状态机** 的一对一智能
 
 ```
 tutor-mind/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                 # FastAPI 入口
-│   │   ├── config.py               # 配置管理（环境变量读取）
-│   │   ├── agents/                 # 多智能体实现
-│   │   │   ├── orchestrator.py     # 编排器：统一 LLM 调用、记忆管理
-│   │   │   ├── info_collector.py   # 信息收集器：学生画像构建
-│   │   │   ├── knowledge_retriever.py  # 知识检索器：RAG 向量检索
-│   │   │   ├── socratic_tutor.py   # 苏格拉底导师：递进式引导教学
-│   │   │   └── search_agent.py     # 搜索代理：Tavily 实时搜索兜底
-│   │   ├── graph/                  # LangGraph 状态机编排
-│   │   │   ├── state.py            # TutorState 状态定义
-│   │   │   └── workflow.py         # 多 Agent 工作流定义
-│   │   ├── tools/                  # 工具函数
-│   │   │   ├── tavily_tool.py      # Tavily API 封装
-│   │   │   ├── kb_search.py        # 知识库搜索工具
-│   │   │   ├── foundation_check.py # 基础水平检测
-│   │   │   └── student_profile.py  # 学生画像管理
-│   │   ├── rag/                    # RAG 实现
-│   │   │   ├── embeddings.py       # DashScope Embedding 生成
-│   │   │   ├── vector_store.py     # ChromaDB 向量存储
-│   │   │   └── retriever.py        # 检索器（嵌入+检索+过滤）
-│   │   ├── memory/                 # 记忆机制
-│   │   │   ├── short_term.py       # 短期记忆：内存滑动窗口
-│   │   │   └── long_term.py        # 长期记忆：SQLite 持久化
-│   │   ├── models/                 # 数据模型
-│   │   │   ├── schemas.py          # Pydantic 模型
-│   │   │   └── database.py         # SQLite 数据库操作
-│   │   ├── api/                    # API 路由
-│   │   │   ├── chat.py             # 聊天 API（流式/非流式）
-│   │   │   ├── student.py          # 学生信息管理
-│   │   │   └── analytics.py        # 学习分析
-│   │   └── crew/                   # CrewAI 扩展（预留）
-│   ├── tests/
-│   ├── requirements.txt
-│   └── .env.example                # 环境变量模板
-├── frontend/
-│   └── src/
-│       ├── App.tsx                 # 主应用组件
-│       ├── components/
-│       │   ├── ChatPanel.tsx       # 聊天面板（流式消息、Markdown、公式渲染）
-│       │   └── Sidebar.tsx         # 侧边栏（会话管理、学生信息）
-│       ├── services/
-│       │   └── api.ts              # API 调用封装
-│       └── types.ts                # TypeScript 类型定义
+├── docs/                           # 文档目录（预留）
+├── src/
+│   ├── backend/
+│   │   ├── app/
+│   │   │   ├── main.py             # FastAPI 入口
+│   │   │   ├── config.py           # 配置管理（环境变量读取）
+│   │   │   ├── agents/             # 多智能体实现
+│   │   │   │   ├── orchestrator.py # 编排器：统一 LLM 调用、记忆管理
+│   │   │   │   ├── info_collector.py   # 信息收集器：学生画像构建
+│   │   │   │   ├── knowledge_retriever.py  # 知识检索器：RAG 向量检索
+│   │   │   │   ├── socratic_tutor.py   # 苏格拉底导师：递进式引导教学
+│   │   │   │   └── search_agent.py # 搜索代理：Tavily 实时搜索兜底
+│   │   │   ├── graph/              # LangGraph 状态机编排
+│   │   │   │   ├── state.py        # TutorState 状态定义
+│   │   │   │   └── workflow.py     # 多 Agent 工作流定义
+│   │   │   ├── tools/              # 工具函数
+│   │   │   │   ├── tavily_tool.py  # Tavily API 封装
+│   │   │   │   ├── kb_search.py    # 知识库搜索工具
+│   │   │   │   ├── foundation_check.py # 基础水平检测
+│   │   │   │   └── student_profile.py  # 学生画像管理
+│   │   │   ├── rag/                # RAG 实现
+│   │   │   │   ├── embeddings.py   # DashScope Embedding 生成
+│   │   │   │   ├── vector_store.py # ChromaDB 向量存储
+│   │   │   │   └── retriever.py    # 检索器（嵌入+检索+过滤）
+│   │   │   ├── memory/             # 记忆机制
+│   │   │   │   ├── short_term.py   # 短期记忆：内存滑动窗口
+│   │   │   │   └── long_term.py    # 长期记忆：SQLite 持久化
+│   │   │   ├── models/             # 数据模型
+│   │   │   │   ├── schemas.py      # Pydantic 模型
+│   │   │   │   └── database.py     # SQLite 数据库操作
+│   │   │   ├── api/                # API 路由
+│   │   │   │   ├── chat.py         # 聊天 API（流式/非流式）
+│   │   │   │   ├── student.py      # 学生信息管理
+│   │   │   │   └── analytics.py    # 学习分析
+│   │   │   └── crew/               # CrewAI 扩展（预留）
+│   │   ├── tests/
+│   │   ├── requirements.txt
+│   │   └── .env.example            # 环境变量模板
+│   └── frontend/
+│       └── src/
+│           ├── App.tsx             # 主应用组件
+│           ├── components/
+│           │   ├── ChatPanel.tsx   # 聊天面板（流式消息、Markdown、公式渲染）
+│           │   └── Sidebar.tsx     # 侧边栏（会话管理、学生信息）
+│           ├── services/
+│           │   └── api.ts          # API 调用封装
+│           └── types.ts            # TypeScript 类型定义
 ├── docker-compose.yml
+├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
@@ -84,14 +88,14 @@ tutor-mind/
 **后端依赖：**
 
 ```bash
-cd backend
+cd src/backend
 pip install -r requirements.txt
 ```
 
 **前端依赖：**
 
 ```bash
-cd frontend
+cd src/frontend
 npm install
 ```
 
@@ -100,7 +104,7 @@ npm install
 复制环境变量模板并填入你的 API Key：
 
 ```bash
-cd backend
+cd src/backend
 cp .env.example .env
 ```
 
@@ -153,11 +157,11 @@ CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
 
 ```bash
 # 启动后端
-cd backend
+cd src/backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 启动前端（新终端）
-cd frontend
+cd src/frontend
 npm run dev
 ```
 

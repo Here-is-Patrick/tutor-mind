@@ -10,6 +10,8 @@ from app.agents.knowledge_retriever import KnowledgeRetrieverAgent
 
 class TestInfoCollector:
     def test_check_nonexistent(self):
+        from app.models.database import init_db
+        init_db()
         agent = InfoCollectorAgent()
         result = agent.check("non_existent")
         assert result["is_complete"] is False
