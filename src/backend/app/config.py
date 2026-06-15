@@ -8,8 +8,19 @@ from pathlib import Path
 from typing import Optional, List
 
 # Load .env file if present
-_env_file = Path(__file__).resolve().parent.parent / ".env"
-if _env_file.exists():
+# Try multiple possible locations for .env (local dev vs Docker)
+_env_candidates = [
+    Path(__file__).resolve().parent.parent / ".env",          # src/backend/.env
+    Path(__file__).resolve().parent.parent.parent / ".env",   # src/.env (fallback)
+    Path("/app/.env"),                                         # Docker WORKDIR
+]
+_env_file = None
+for candidate in _env_candidates:
+    if candidate.exists():
+        _env_file = candidate
+        break
+
+if _env_file:
     with open(_env_file, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
