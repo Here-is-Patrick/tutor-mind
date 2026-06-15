@@ -4,6 +4,8 @@ SocraticTutorAgent — guides the student through Socratic questioning method.
 
 import logging
 
+from langchain_core.messages import HumanMessage, AIMessage
+
 from app.agents.orchestrator import get_orchestrator
 from app.memory.long_term import LongTermMemory
 from app.tools.foundation_check import get_adaptive_instructions
@@ -33,9 +35,6 @@ class SocraticTutorAgent:
 
 {adaptive_instructions}
 
-对话历史：
-{history}
-
 重要格式要求：
 - 所有数学公式必须使用 LaTeX 格式，用 $ 包裹行内公式，用 $$ 包裹独立公式块。例如：$E=mc^2$ 或 $$\\int_a^b f(x)dx$$
 - 所有代码片段必须用 Markdown 代码块包裹，并标明语言类型
@@ -51,27 +50,49 @@ class SocraticTutorAgent:
         student_input: str,
         context: dict,
         session_id: str,
+        messages: list = None,
     ) -> dict:
         """
         Generate a Socratic guiding question based on similar question context.
+        Supports multi-turn conversation via the messages parameter.
         """
         orchestrator = get_orchestrator()
         long_term = LongTermMemory()
 
         similar_q = context.get("question", student_input)
         reference_a = context.get("answer", "")
-        history = orchestrator.get_conversation_context(session_id)
         adaptive_instructions = get_adaptive_instructions(student_id)
 
-        prompt = self.SYSTEM_PROMPT.format(
+        # Build message list for multi-turn LLM call
+        if messages is None:
+            messages = []
+
+        # Append current user input as the last message
+        current_prompt = self.SYSTEM_PROMPT.format(
             similar_question=similar_q,
             reference_answer=reference_a,
             current_question=student_input,
-            history=history,
             adaptive_instructions=adaptive_instructions,
         )
 
-        reply = orchestrator.call_llm(prompt, student_input, history)
+        # If we have conversation history, use the new multi-turn API
+        if messages:
+            # Add the current user input to the message list
+            messages_with_current = list(messages)
+            messages_with_current.append(HumanMessage(content=student_input))
+            reply = orchestrator.call_llm_with_messages(
+                system_prompt=current_prompt,
+                messages=messages_with_current,
+                adaptive_instructions=adaptive_instructions,
+            )
+        else:
+            # Fallback to legacy API if no history
+            history = orchestrator.get_conversation_context(session_id)
+            reply = orchestrator.call_llm(
+                current_prompt,
+                student_input,
+                history=history,
+            )
 
         # Save this interaction to long-term memory
         qa_id = str(long_term.save_qa_record(

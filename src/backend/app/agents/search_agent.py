@@ -4,6 +4,8 @@ SearchAgent — calls Tavily API and generates answers from search results.
 
 import logging
 
+from langchain_core.messages import HumanMessage
+
 from app.agents.orchestrator import get_orchestrator
 from app.memory.long_term import LongTermMemory
 from app.tools.tavily_tool import tavily_search, format_search_results
@@ -28,9 +30,6 @@ class SearchAgent:
 
 搜索结果：
 {search_results}
-
-对话历史：
-{history}
 
 学生问题：{query}
 
@@ -64,26 +63,40 @@ def hello():
         query: str,
         search_results: list[dict],
         session_id: str,
+        messages: list = None,
     ) -> dict:
         """
         Generate a structured answer from search results, adapting to
-        foundation level.
+        foundation level. Supports multi-turn conversation via messages.
         """
         orchestrator = get_orchestrator()
         long_term = LongTermMemory()
 
         formatted_results = format_search_results(search_results)
-        history = orchestrator.get_conversation_context(session_id)
         adaptive_instructions = get_adaptive_instructions(student_id)
 
         prompt = self.ANSWER_SYSTEM_PROMPT.format(
             adaptive_instructions=adaptive_instructions,
             search_results=formatted_results,
-            history=history,
             query=query,
         )
 
-        reply = orchestrator.call_llm(prompt, query, history)
+        # Use multi-turn API if conversation history exists
+        if messages is None:
+            messages = []
+
+        if messages:
+            messages_with_current = list(messages)
+            messages_with_current.append(HumanMessage(content=query))
+            reply = orchestrator.call_llm_with_messages(
+                system_prompt=prompt,
+                messages=messages_with_current,
+                adaptive_instructions=adaptive_instructions,
+            )
+        else:
+            # Fallback to legacy API
+            history = orchestrator.get_conversation_context(session_id)
+            reply = orchestrator.call_llm(prompt, query, history=history)
 
         # Save to long-term memory
         qa_id = str(long_term.save_qa_record(
