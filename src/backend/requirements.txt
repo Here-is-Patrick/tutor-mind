@@ -15,8 +15,8 @@ langchain-core>=0.3.0
 langchain-community>=0.3.0
 
 # ── CrewAI ────────────────────────────────────────────────────
-crewai>=0.83.0
-crewai-tools>=0.16.0
+# crewai>=0.83.0
+# crewai-tools>=0.16.0
 
 # ── Vector Database ──────────────────────────────────────────
 chromadb>=0.5.0

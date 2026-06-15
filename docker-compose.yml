@@ -3,15 +3,15 @@ version: "3.9"
 services:
   backend:
     build:
-      context: ./backend
+      context: ./src/backend
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - ./src/backend/.env
     volumes:
       - ./data:/app/data
-      - ./backend:/app
+      - ./src/backend:/app
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -21,7 +21,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./src/frontend
       dockerfile: Dockerfile
     ports:
       - "3000:80"
