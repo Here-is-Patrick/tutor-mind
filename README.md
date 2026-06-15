@@ -1,28 +1,40 @@
 # TutorMind
 
+> 课程：企业级应用软件设计与开发（AI 驱动的软件开发与 Agentic AI）  
+> 课程代码：CS599 | 学期：2025-2026 春季  
+> 方向：**方向一：Agentic AI 原生开发**
+
 ## 项目简介
 
 TutorMind 是一个基于 **LangGraph 多智能体状态机** 的一对一智能学习辅导系统。系统通过多个专门化的 AI Agent 协同工作，为学生提供个性化的苏格拉底式教学体验，包括学生信息收集、知识库检索、递进式引导教学、实时搜索兜底等功能。
 
-## 方向
-
-**方向一：Agentic AI 原生开发**
-
 本项目从零开始基于多智能体架构设计，核心工作流由 LangGraph StateGraph 编排，各 Agent 通过共享状态（TutorState）协作完成教学任务。
+
+## 核心技术要素
+
+| 要素 | 实现说明 |
+|------|----------|
+| SDD 规格驱动开发 | Product Spec / Architecture Spec / API Spec 分层规格文档 |
+| 状态管理与多步骤推理 | LangGraph StateGraph 编排完整教学工作流 |
+| 多智能体协作 | Orchestrator / InfoCollector / KnowledgeRetriever / SocraticTutor / SearchAgent 五角色协作 |
+| 记忆机制 | 短期记忆（内存滑动窗口）+ 长期记忆（SQLite 持久化）+ 向量记忆（ChromaDB） |
+| 工具使用 / Function Calling | Tavily Search API 实时搜索兜底、学生画像 CRUD 工具 |
+| 可观测性 | 结构化日志、健康检查端点、LLM 调用状态追踪 |
 
 ## 技术栈
 
 | 层级 | 技术 |
 |------|------|
-| AI IDE | Trae CN |
+| AI IDE | Trae CN（课程指定） |
 | LLM | 阿里云百炼 DashScope (通义千问系列) |
-| 状态编排 | LangGraph (StateGraph) |
+| Agent 框架 | LangGraph + LangChain |
 | 后端框架 | FastAPI + Python 3.11+ |
 | 向量数据库 | ChromaDB |
 | 结构化存储 | SQLite |
 | 实时搜索 | Tavily Search API |
 | 前端 | React 18 + TypeScript + Tailwind CSS |
 | 容器 | Docker + Docker Compose |
+| 协议 | SSE 流式传输、REST API |
 
 ## 目录结构
 
@@ -235,6 +247,12 @@ check_student_info（检查学生信息完整性）
 - **v0.2**: 苏格拉底引导优化 + 学生画像完善
 - **v0.3**: 学习分析 + Docker 部署
 - **v0.4**: MCP 协议 + 云部署 + 可观测性
+
+## 学术声明
+
+- 本项目为 CS599 课程大作业，代码与文档均为原创。
+- 引用外部开源项目或论文已在文档中标注来源。
+- API Key 均通过环境变量注入，代码中无硬编码密钥。
 
 ## License
 
