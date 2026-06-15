@@ -9,6 +9,7 @@ from typing import cast
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import HumanMessage, AIMessage
 
 from app.models.schemas import ChatRequest, ChatResponse, ErrorResponse
 from app.graph.state import TutorState
@@ -29,6 +30,25 @@ tutor_graph = create_tutor_graph()
 orchestrator = get_orchestrator()
 
 
+# ── Helper: load history messages as LangChain objects ───────────────
+
+def _load_history_messages(session_id: str, limit: int = 20) -> list:
+    """Load conversation history from DB and convert to LangChain messages."""
+    ltm = LongTermMemory()
+    db_msgs = ltm.get_session_messages(session_id, limit=limit)
+    messages = []
+    for msg in db_msgs:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "student":
+            messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            messages.append(AIMessage(content=content))
+        else:
+            messages.append(HumanMessage(content=content))
+    return messages
+
+
 # ── Non-streaming chat ───────────────────────────────────────────────
 
 @router.post(
@@ -39,6 +59,9 @@ orchestrator = get_orchestrator()
 async def chat(req: ChatRequest) -> ChatResponse:
     """Send a message to the tutor and get a response."""
     try:
+        # Load conversation history for multi-turn context
+        history_messages = _load_history_messages(req.session_id)
+
         initial_state: TutorState = {
             "student_id": req.student_id,
             "session_id": req.session_id,
@@ -53,7 +76,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             "search_result": None,
             "final_reply": "",
             "is_weak_foundation": False,
-            "messages": [],
+            "messages": history_messages,
             "error": None,
         }
 
@@ -109,6 +132,9 @@ async def chat_stream(req: ChatRequest):
     """Send a message and receive a streaming response via SSE."""
     async def event_generator():
         try:
+            # Load conversation history for multi-turn context
+            history_messages = _load_history_messages(req.session_id)
+
             initial_state: TutorState = {
                 "student_id": req.student_id,
                 "session_id": req.session_id,
@@ -123,7 +149,7 @@ async def chat_stream(req: ChatRequest):
                 "search_result": None,
                 "final_reply": "",
                 "is_weak_foundation": False,
-                "messages": [],
+                "messages": history_messages,
                 "error": None,
             }
 

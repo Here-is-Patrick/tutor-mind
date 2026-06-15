@@ -12,6 +12,7 @@ from typing import Literal
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import HumanMessage, AIMessage
 
 from app.graph.state import TutorState
 from app.agents.info_collector import InfoCollectorAgent
@@ -29,6 +30,33 @@ kb_retriever = KnowledgeRetrieverAgent()
 socratic_tutor = SocraticTutorAgent()
 search_agent = SearchAgent()
 orchestrator = OrchestratorAgent()
+
+
+# ── Helper: build message list from state ────────────────────────────
+
+def _build_messages(state: TutorState) -> list:
+    """Build LangChain message list from state['messages'] for multi-turn LLM calls."""
+    raw_messages = state.get("messages", [])
+    if not raw_messages:
+        return []
+
+    result = []
+    for msg in raw_messages:
+        if isinstance(msg, (HumanMessage, AIMessage)):
+            result.append(msg)
+        elif isinstance(msg, dict):
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "student" or role == "user" or role == "human":
+                result.append(HumanMessage(content=content))
+            elif role == "assistant":
+                result.append(AIMessage(content=content))
+            else:
+                result.append(HumanMessage(content=content))
+        else:
+            # Fallback: treat as human message
+            result.append(HumanMessage(content=str(msg)))
+    return result
 
 
 # ── Node functions ───────────────────────────────────────────────────
@@ -65,6 +93,13 @@ def collect_info(state: TutorState) -> TutorState:
     state["stage"] = "collect_info"
     # Mark if info was just completed in this turn
     state["just_completed"] = (not was_complete_before) and state["is_info_complete"]
+
+    # Append assistant reply to messages for multi-turn continuity
+    if state["final_reply"]:
+        state["messages"] = state.get("messages", []) + [
+            HumanMessage(content=state["student_input"]),
+            AIMessage(content=state["final_reply"]),
+        ]
     return state
 
 
@@ -85,16 +120,28 @@ def search_knowledge_base(state: TutorState) -> TutorState:
 def socratic_teach(state: TutorState) -> TutorState:
     """
     Node 3a: Socratic teaching — guide student through questions.
+    Uses full conversation history from state['messages'] for multi-turn context.
     """
     logger.info(f"[{state['student_id']}] Stage: socratic_teach")
+
+    # Build message list from state for multi-turn LLM call
+    messages = _build_messages(state)
+
     result = socratic_tutor.teach(
         student_id=state["student_id"],
         student_input=state["student_input"],
         context=state["socratic_context"],
         session_id=state["session_id"],
+        messages=messages,
     )
     state["final_reply"] = result["reply"]
     state["stage"] = "socratic_teach"
+
+    # Append current turn to messages
+    state["messages"] = state.get("messages", []) + [
+        HumanMessage(content=state["student_input"]),
+        AIMessage(content=state["final_reply"]),
+    ]
     return state
 
 
@@ -115,16 +162,28 @@ def tavily_search(state: TutorState) -> TutorState:
 def generate_answer(state: TutorState) -> TutorState:
     """
     Node 4: Generate final answer from search results.
+    Uses full conversation history from state['messages'] for multi-turn context.
     """
     logger.info(f"[{state['student_id']}] Stage: generate_answer")
+
+    # Build message list from state for multi-turn LLM call
+    messages = _build_messages(state)
+
     result = search_agent.generate_answer(
         student_id=state["student_id"],
         query=state["student_input"],
         search_results=state.get("search_result", []),
         session_id=state["session_id"],
+        messages=messages,
     )
     state["final_reply"] = result["reply"]
     state["stage"] = "generate_answer"
+
+    # Append current turn to messages
+    state["messages"] = state.get("messages", []) + [
+        HumanMessage(content=state["student_input"]),
+        AIMessage(content=state["final_reply"]),
+    ]
     return state
 
 
