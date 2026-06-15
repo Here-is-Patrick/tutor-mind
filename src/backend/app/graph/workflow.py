@@ -64,12 +64,21 @@ def _build_messages(state: TutorState) -> list:
 def check_student_info(state: TutorState) -> TutorState:
     """
     Node 1: Check if student info is complete.
+    Also detect if the user input looks like a profile update (e.g. '我的基础薄弱'),
+    in which case we should re-enter collect_info even if profile is already complete.
     """
     logger.info(f"[{state['student_id']}] Stage: check_student_info")
     result = info_collector.check(state["student_id"])
     state["is_info_complete"] = result["is_complete"]
     state["student_profile"] = result["profile"]
     state["is_weak_foundation"] = result.get("is_weak_foundation", False)
+
+    # If profile is complete but user input looks like a profile update,
+    # force is_info_complete=False so we route to collect_info
+    if state["is_info_complete"] and info_collector.looks_like_profile_update(state["student_input"]):
+        logger.info(f"[{state['student_id']}] Detected profile update intent, routing to collect_info")
+        state["is_info_complete"] = False
+
     state["stage"] = "check_student_info"
     return state
 

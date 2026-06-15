@@ -47,6 +47,14 @@ class InfoCollectorAgent:
 严格只返回JSON，不包含其他文字。
 """
 
+    # Signals that the user wants to update their profile info
+    _UPDATE_SIGNALS = [
+        '基础薄弱', '基础不好', '基础差', '基础一般', '基础还行', '基础不错',
+        '有一定基础', '没有基础', '零基础',
+        '我叫', '我是', '今年', '岁', '年级', '学历',
+        '改一下', '修改', '更新', '换', '改成',
+    ]
+
     def check(self, student_id: str) -> dict:
         """
         Check profile status.
@@ -64,6 +72,10 @@ class InfoCollectorAgent:
             "profile": profile.dict(),
             "is_weak_foundation": profile.is_weak_foundation,
         }
+
+    def looks_like_profile_update(self, student_input: str) -> bool:
+        """Heuristic: does the input look like the user is updating their profile?"""
+        return any(sig in student_input for sig in self._UPDATE_SIGNALS)
 
     def collect(
         self,
