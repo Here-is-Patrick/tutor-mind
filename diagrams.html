@@ -21,42 +21,42 @@
 <div class="mermaid">
 graph TB
     subgraph 表现层
-        UI[React 18 + TypeScript<br/>ChatPanel / Sidebar]
+        UI[React 18 + TypeScript ChatPanel Sidebar]
     end
 
     subgraph API网关层
-        API[FastAPI<br/>REST + SSE]
+        API[FastAPI REST SSE]
     end
 
     subgraph 编排层
-        LG[LangGraph StateGraph<br/>TutorState + MemorySaver]
+        LG[LangGraph StateGraph TutorState MemorySaver]
     end
 
     subgraph Agent层
-        A1[OrchestratorAgent<br/>LLM调用 + 记忆管理]
-        A2[InfoCollectorAgent<br/>画像构建 + 更新识别]
-        A3[KnowledgeRetrieverAgent<br/>向量检索]
-        A4[SocraticTutorAgent<br/>苏格拉底引导]
-        A5[SearchAgent<br/>Tavily搜索 + 答案生成]
+        A1[OrchestratorAgent LLM调用 记忆管理]
+        A2[InfoCollectorAgent 画像构建 更新识别]
+        A3[KnowledgeRetrieverAgent 向量检索]
+        A4[SocraticTutorAgent 苏格拉底引导]
+        A5[SearchAgent Tavily搜索 答案生成]
     end
 
     subgraph 工具层
         T1[Tavily Search API]
-        T2[ChromaDB<br/>向量存储]
+        T2[ChromaDB 向量存储]
     end
 
     subgraph 记忆层
-        M1[短期记忆<br/>内存滑动窗口]
-        M2[长期记忆<br/>SQLite持久化]
-        M3[向量记忆<br/>ChromaDB]
-        M4[Checkpoint<br/>MemorySaver]
+        M1[短期记忆 内存滑动窗口]
+        M2[长期记忆 SQLite持久化]
+        M3[向量记忆 ChromaDB]
+        M4[Checkpoint MemorySaver]
     end
 
     subgraph 数据层
-        D1[(SQLite<br/>students / messages<br/>qa_records / sessions)]
+        D1[(SQLite students messages qa_records sessions)]
     end
 
-    UI -->|HTTP/SSE| API
+    UI -->|HTTP SSE| API
     API -->|invoke| LG
     LG --> A1
     LG --> A2
@@ -97,29 +97,29 @@ sequenceDiagram
     F->>C: POST /api/chat/stream
     C->>DB: 加载历史 messages
     C->>G: invoke(initial_state)
-    G->>I: check_student_info()
+    G->>I: check_student_info
     alt 信息不完整 / 更新意图
         I-->>G: is_info_complete=False
-        G->>I: collect_info()
-        I->>O: call_llm() 提取信息
+        G->>I: collect_info
+        I->>O: call_llm 提取信息
         I->>DB: 保存学生画像
         I-->>G: final_reply=确认消息
     else 信息完整
         I-->>G: is_info_complete=True
-        G->>K: search_knowledge_base()
+        G->>K: search_knowledge_base
         K->>DB: ChromaDB 向量检索
         alt KB 命中
             K-->>G: kb_hit=True
-            G->>S: socratic_teach()
-            S->>O: call_llm_with_messages()<br/>携带多轮历史
+            G->>S: socratic_teach
+            S->>O: call_llm_with_messages 携带多轮历史
             S->>DB: 保存 QA 记录
             S-->>G: final_reply=引导问题
         else KB 未命中
             K-->>G: kb_hit=False
-            G->>T: tavily_search()
+            G->>T: tavily_search
             T->>T: Tavily API 搜索
-            G->>T: generate_answer()
-            T->>O: call_llm_with_messages()<br/>携带多轮历史
+            G->>T: generate_answer
+            T->>O: call_llm_with_messages 携带多轮历史
             T->>DB: 保存 QA 记录
             T-->>G: final_reply=搜索答案
         end
@@ -136,22 +136,22 @@ sequenceDiagram
 <div class="diagram-container">
 <div class="mermaid">
 graph LR
-    START([开始]) --> INIT[构造 TutorState<br/>student_id, session_id<br/>student_input, messages=[]]
-    INIT --> CHECK[check_student_info<br/>is_info_complete?<br/>looks_like_profile_update?]
+    START([开始]) --> INIT[构造 TutorState student_id session_id student_input messages为空]
+    INIT --> CHECK[check_student_info is_info_complete looks_like_profile_update]
 
-    CHECK -->|不完整/更新| COLLECT[collect_info<br/>提取信息 → 更新 profile<br/>just_completed=True]
+    CHECK -->|不完整或更新| COLLECT[collect_info 提取信息更新profile just_completed=True]
     COLLECT -->|just_completed| END1([返回确认])
     COLLECT -->|仍不完整| END2([追问缺失信息])
 
-    CHECK -->|完整| SEARCH[search_knowledge_base<br/>ChromaDB 检索<br/>kb_hit? similarity?]
+    CHECK -->|完整| SEARCH[search_knowledge_base ChromaDB检索 kb_hit similarity]
 
-    SEARCH -->|命中| SOCRATIC[socratic_teach<br/>构建 messages<br/>call_llm_with_messages<br/>追加 (Human, AI) 到 state]
-    SOCRATIC --> SAVE1[save_conversation_turn<br/>SQLite 持久化]
+    SEARCH -->|命中| SOCRATIC[socratic_teach 构建messages call_llm_with_messages 追加HumanAI到state]
+    SOCRATIC --> SAVE1[save_conversation_turn SQLite持久化]
     SAVE1 --> END3([返回引导问题])
 
-    SEARCH -->|未命中| TAVILY[tavily_search<br/>Tavily API 搜索<br/>search_result=[]]
-    TAVILY --> GENERATE[generate_answer<br/>构建 messages<br/>call_llm_with_messages<br/>追加 (Human, AI) 到 state]
-    GENERATE --> SAVE2[save_conversation_turn<br/>SQLite 持久化]
+    SEARCH -->|未命中| TAVILY[tavily_search TavilyAPI搜索 search_result为空]
+    TAVILY --> GENERATE[generate_answer 构建messages call_llm_with_messages 追加HumanAI到state]
+    GENERATE --> SAVE2[save_conversation_turn SQLite持久化]
     SAVE2 --> END4([返回答案])
 
     style START fill:#e1f5fe
@@ -170,36 +170,35 @@ graph LR
 <div class="mermaid">
 graph TB
     subgraph 输入
-        MSG[学生输入 / Assistant 回复]
+        MSG[学生输入 Assistant回复]
     end
 
     subgraph 记忆管理层
-        direction TB
-        STM[ShortTermMemory<br/>内存 dict<br/>容量: 20条/会话<br/>滑动窗口淘汰]
-        LTM[LongTermMemory<br/>SQLite<br/>messages / qa_records<br/>持久化存储]
-        VM[VectorStore<br/>ChromaDB<br/>QA 向量嵌入<br/>相似度检索]
-        CK[MemorySaver<br/>LangGraph Checkpoint<br/>工作流状态恢复]
+        STM[ShortTermMemory 内存dict 容量20条每会话 滑动窗口淘汰]
+        LTM[LongTermMemory SQLite messages qa_records 持久化存储]
+        VM[VectorStore ChromaDB QA向量嵌入 相似度检索]
+        CK[MemorySaver LangGraphCheckpoint 工作流状态恢复]
     end
 
     subgraph 消费端
-        CHAT[chat.py<br/>加载历史到 initial_state]
-        WORK[workflow.py<br/>_build_messages()<br/>构建 BaseMessage 列表]
-        LLM[Orchestrator<br/>call_llm_with_messages()<br/>多轮 LLM 调用]
+        CHAT[chat.py 加载历史到initial_state]
+        WORK[workflow.py _build_messages 构建BaseMessage列表]
+        LLM[Orchestrator call_llm_with_messages 多轮LLM调用]
     end
 
-    MSG -->|add()| STM
-    MSG -->|save_message()| LTM
-    MSG -->|save_qa_record()| LTM
+    MSG -->|add| STM
+    MSG -->|save_message| LTM
+    MSG -->|save_qa_record| LTM
     LTM -->|Embedding| VM
 
-    STM -->|get_formatted()| LLM
-    LTM -->|get_session_messages()| CHAT
-    LTM -->|get_session_messages()| STM
-    VM -->|search_similar()| WORK
+    STM -->|get_formatted| LLM
+    LTM -->|get_session_messages| CHAT
+    LTM -->|get_session_messages| STM
+    VM -->|search_similar| WORK
     CK -->|checkpoint| WORK
 
-    CHAT -->|注入 messages| WORK
-    WORK -->|BaseMessage 列表| LLM
+    CHAT -->|注入messages| WORK
+    WORK -->|BaseMessage列表| LLM
 
     style STM fill:#e3f2fd
     style LTM fill:#e8f5e9
